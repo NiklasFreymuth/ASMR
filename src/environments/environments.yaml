@@ -1,0 +1,13 @@
+# Register your environment here under a unique name.
+# example:
+#
+# my_environment_name:  # Unique name. Can be used in task configs as value for the "environment" property.
+#   module: src.environments...MyClassName  # MyClassName.py must contain a class "MyClassName"!
+
+mesh_refinement:
+  module: src.environments.mesh.mesh_refinement.mesh_refinement
+
+sweep_mesh_refinement:
+  module: src.environments.mesh.mesh_refinement.sweep.sweep_mesh_refinement
+
+

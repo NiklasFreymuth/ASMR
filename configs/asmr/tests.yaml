@@ -1,0 +1,300 @@
+# test experiments to quickly check out all tests and methods. We use only 4 integration and refinement steps here,
+# as calculating the ground truth on a 6x refined level is rather expensive and not needed for testing
+
+# To see the full list of available parameters, see ASMR/configs/asmr/asmr_default.yaml
+# These tests can be turned into a full experiment by increasing the number of iterations and repetitions,
+# the number of integration and refinement steps, and the number of rollout steps/steps per iteration for PPO/DQN
+
+name: "SLURM"   # MUST BE "SLURM"
+
+# Required
+partition: "single"
+job-name: "tests"    # this will be the experiments name in slurm
+num_parallel_jobs: 30  # to prevent wandb overload
+time: 4320  # in minutes
+ntasks: 1
+cpus-per-task: 16
+mem-per-cpu: 8000
+
+---
+repetitions: 1
+reps_per_job: 1
+reps_in_parallel: 1
+iterations: 1
+
+name: "DEFAULT"   # MUST BE DEFAULT
+import_path: "asmr_default.yaml"
+params:
+  task:
+    mesh_refinement:
+      num_timesteps: 4
+      fem:
+        pde_type: laplace
+        domain:
+          domain_type: square_hole
+          mean_hole_size: 0.15
+          maximum_size_distortion: 0.1
+          maximum_position_distortion: 0.3
+          num_integration_refinements: 4
+      evaluation:
+        # evaluate on a fixed domain and on a randomly sampled domain
+        fem:
+          num_pdes: [ 1, 0 ]
+          domain:
+            fixed_domain: [ True, False ]
+            maximum_position_distortion: [ 0.0, 0.3 ]
+  algorithm:
+    # small numbers here to speed up tests
+    ppo:
+      num_rollout_steps: 16
+    dqn:
+      steps_per_iteration: 4
+      initial_replay_buffer_samples: 100
+
+---
+name: laplace_asmr
+params:
+  recording:
+    wandb:
+      enabled: True  # whether to use the wandb logger or not
+      plot_frequency: 5  # If wandb is enabled, how often to log plots online. High frequencies take up a lot of space.
+  task:
+    mesh_refinement:
+      element_penalty: 0.02
+  algorithm:
+    ppo:
+      value_function_scope: spatial
+    use_mixed_reward: True
+
+list:
+  recording:
+    nametag: [ "asmr" ]
+    idx: [ 0 ] # give an id to the experiments for easier comparison in the pareto plots
+
+---
+############################
+### Baseline experiments ###
+############################
+# we have 3 baseline experiments:
+# 1. argmax https://arxiv.org/pdf/2103.01342.pdf
+# 2. vdgn https://arxiv.org/pdf/2211.00801v3.pdf
+# 3. sweep https://arxiv.org/pdf/2209.12351.pdf
+#
+# for each of these, we have 2 variants:
+# 1. ppo
+# 2. dqn
+
+# making for a total of 6 baseline experiments. We only do the full 6 experiments here, and take the better RL
+# algorithm for each method for the other experiments
+
+name: laplace_argmax
+params:
+  algorithm:
+    ppo:
+      value_function_scope: graph
+    dqn:
+      max_replay_buffer_size: 10000
+  task:
+    mesh_refinement:
+      refinement_strategy: argmax  # refine exactly 1 element in every step, as described in the argmax paper
+      element_penalty: 0.0  # no face penalty since we refine exactly 1 element in every step in any case
+      reward_type: argmax  # reward type of the original baseline paper. No need to do area comparisons here
+      num_timesteps: 100  # give enough steps to make a nice refinement
+
+list:
+  recording:
+    nametag: [ argmax_ppo, argmax_dqn ]
+    idx: [ 10, 11 ]
+  algorithm:
+    name: [ ppo, argmax_dqn ]
+    # argmax-ppo is a variant of ppo where only a single element is refined in every step and the reward is
+    # given by that proposed in the respective paper
+---
+name: laplace_vdgn
+
+params:
+  task:
+    mesh_refinement:
+      reward_type: vdgn
+
+list:
+  recording:
+    nametag: [ "vdgn_ppo", "vdgn_dqn" ]
+    idx: [ 12, 13 ]
+  algorithm:
+    name: [ ppo, vdgn ]
+  # vdgn-ppo is a version of ppo with global rewards (as returned by the "vdgn" reward type) and a value
+  # decomposition, which is given by the "value_function_scope"="spatial".
+
+---
+name: laplace_sweep
+
+params:
+  task:
+    environment_class: sweep_mesh_refinement
+    mesh_refinement:
+      element_penalty: 25  # taken from the paper
+      num_training_timesteps: 200  # taken from the paper
+      num_evaluation_timesteps: 4
+      reward_type: sweep  # use the sweep reward
+
+      element_features: # Sweep exclusive features.
+        resource_budget: True # current number of elements / maximum number of elements
+        average_solution: True
+        mean_area_neighbors: True # Agent gets mean area of neighbor elements
+        mean_edge_attributes: True # Mean
+      include_globals: False # not used for this method, as global information is in the element features
+  algorithm:
+    network:
+      type_of_base: sweep
+
+    name: sweep_ppo
+    ppo:
+      value_function_scope: graph
+      num_rollout_steps: 512
+    dqn:
+      steps_per_iteration: 96
+      max_replay_buffer_size: 10000
+
+list:
+  recording:
+    nametag: [ "sweep_ppo", "sweep_dqn" ]
+    idx: [ 14, 15 ]
+  algorithm:
+    name: [ sweep_ppo, sweep_dqn ]
+
+---
+name: poisson_maximum_reward
+params:
+  task:
+    mesh_refinement:
+      fem:
+        pde_type: poisson
+        error_metric: maximum
+        domain:
+          domain_type: lshape
+          mean_hole_size: 0.15
+          maximum_position_distortion: 0.3  # also doubles for the l-shape
+      evaluation:
+        fem:
+          num_pdes: [ 1, 0 ]
+          domain:
+            fixed_domain: [ True, False ]
+            maximum_position_distortion: [ 0.0, 0.3 ]
+          poisson:
+            fixed_load: [ True, False ]
+      reward_type: spatial_max
+  algorithm:
+    use_mixed_reward: True
+list:
+  recording:
+    nametag: [ "max_reward" ]
+    idx: [ 40 ]
+---
+name: poisson_dqn_asmr
+params:
+  task:
+    mesh_refinement:
+      fem:
+        pde_type: poisson
+        domain:
+          domain_type: lshape
+          mean_hole_size: 0.15
+          maximum_position_distortion: 0.3  # also doubles for the l-shape
+      evaluation:
+        fem:
+          num_pdes: [ 1, 0 ]
+          domain:
+            fixed_domain: [ True, False ]
+            maximum_position_distortion: [ 0.0, 0.3 ]
+          poisson:
+            fixed_load: [ True, False ]
+  algorithm:
+    use_mixed_reward: True
+list:
+  algorithm:
+    name: [ dqn ]
+  recording:
+    nametag: [ ours_dqn ]
+    idx: [ 20 ]
+
+---
+name: stokes_flow_asmr
+params:
+  task:
+    mesh_refinement:
+      fem:
+        pde_type: stokes_flow
+        domain:
+          domain_type: trapezoid
+          maximum_distortion: 0.45
+      evaluation:
+        # we only use 1 evaluation environment here because computing a new reference mesh for each evaluation step
+        # is relatively costly
+        fem:
+          num_pdes: 1 # [ 1, 0 ]
+          domain:
+            fixed_domain: True # [ True, False ]
+          stokes_flow:
+            fixed_velocity: True # [ True, False ]
+
+list:
+  recording:
+    nametag: [ "asmr" ]
+    idx: [ 0 ] # give an id number to the experiments for easier comparison in the wandb pareto plots
+  algorithm:
+    use_mixed_reward: True
+
+---
+name: linear_elasticity_asmr
+params:
+  task:
+    mesh_refinement:
+      fem:
+        domain:
+          domain_type: lshape
+          maximum_position_distortion: 0.3
+        pde_type: linear_elasticity
+      evaluation:
+        # we only use 1 evaluation environment here because computing a new reference mesh for each evaluation step
+        # is relatively costly
+        fem:
+          num_pdes: 1
+          domain:
+            domain: True
+            maximum_position_distortion: 0.0
+          linear_elasticity:
+            displacement: True
+list:
+  recording:
+    nametag: [ "asmr" ]
+    idx: [ 0 ]
+  algorithm:
+    use_mixed_reward: True
+
+---
+name: heat_diffusion_asmr
+params:
+  task:
+    mesh_refinement:
+      fem:
+        heat_diffusion:
+          diffusivity: 0.001
+        domain:
+          domain_type: convex_polygon
+          maximum_distortion: 0.2
+        pde_type: heat_diffusion
+      evaluation:
+        fem:
+          num_pdes: 1
+          domain:
+            fixed_domain: True
+            maximum_distortion: 0.0
+          heat_diffusion:
+            fixed_diffusion: True
+list:
+  recording:
+    nametag: [ "asmr" ]
+    idx: [ 0 ]
+  algorithm:
+    use_mixed_reward: True

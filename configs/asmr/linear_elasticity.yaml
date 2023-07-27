@@ -1,0 +1,167 @@
+# mesh refinement experiments for the cluster
+
+name: "SLURM"   # MUST BE "SLURM"
+
+# Required
+partition: "single"
+job-name: "linear_elasticity"    # this will be the experiments name in slurm
+num_parallel_jobs: 30  # to prevent wandb overload
+time: 4320  # in minutes
+ntasks: 1
+cpus-per-task: 16
+mem-per-cpu: 8000
+
+---
+
+name: "DEFAULT"   # MUST BE DEFAULT
+import_path: "asmr_default.yaml"
+params:
+  task:
+    mesh_refinement:
+      fem:
+        domain:
+          domain_type: lshape
+          maximum_position_distortion: 0.3
+        pde_type: linear_elasticity
+      evaluation:
+        # we only use 1 evaluation environment here because computing a new reference mesh for each evaluation step
+        # is relatively costly
+        fem:
+          num_pdes: 1
+          domain:
+            domain: True
+            maximum_position_distortion: 0.0
+          linear_elasticity:
+            displacement: True
+---
+# linear elasticity experiments, including baselines
+name: linear_elasticity_asmr
+params:
+  algorithm:
+    use_mixed_reward: True
+list:
+  recording:
+    nametag: [ "asmr" ]
+    idx: [ 0 ]  # give a number to the experiments for easier comparison in the pareto plots
+grid:
+  task:
+    mesh_refinement:
+      element_penalty: [ 0.15, 0.1, 0.075, 0.05, 0.04,
+                         0.03, 0.025, 0.02, 0.015, 0.01 ]
+---
+name: linear_elasticity_argmax
+params:
+  algorithm:
+    name: argmax_dqn
+    ppo:
+      value_function_scope: graph
+    dqn:
+      max_replay_buffer_size: 10000
+  task:
+    mesh_refinement:
+      refinement_strategy: argmax  # refine exactly 1 element in every step as described in the argmax paper
+      element_penalty: 0.0  # no face penalty since we refine exactly 1 element in every step in any case
+      reward_type: argmax  # reward type of the original baseline paper. No need to do area comparisons here
+      num_timesteps: 100  # give enough steps to make a nice refinement
+
+list:
+  recording:
+    nametag: [ argmax_dqn ]
+    idx: [ 11 ]
+grid:
+  task:
+    mesh_refinement:
+      num_timesteps: [ 25, 50, 75, 100, 150,
+                       200, 250, 300, 350, 400 ]
+---
+
+name: linear_elasticity_vdgn
+
+params:
+  task:
+    mesh_refinement:
+      reward_type: vdgn
+  algorithm:
+    name: ppo
+    # vdgn-ppo is a version of ppo with global rewards (as returned by the "vdgn" reward type) and a value
+    # decomposition, which is given by the "value_function_scope"="spatial".
+list:
+  recording:
+    nametag: ["vdgn_ppo"]
+    idx: [12]
+
+grid:
+  task:
+    mesh_refinement:
+      element_penalty: [ 1.0e-2, 5.0e-3, 2.0e-3, 1.0e-3, 5.0e-4,
+                         2.0e-4, 1.0e-4, 5.0e-5, 2.0e-5, 1.0e-5 ]
+
+---
+name: linear_elasticity_sweep
+
+params:
+  task:
+    environment_class: sweep_mesh_refinement
+    mesh_refinement:
+      element_penalty: 25
+      num_training_timesteps: 200 # use different episode lengths for single agent training & multi-agent evaluation
+      # here, we use 512 steps to give the agent enough time to learn the task
+      num_evaluation_timesteps: 6
+      reward_type: sweep  # use the sweep reward
+
+      element_features: # Sweep exclusive features.
+        resource_budget: True # current number of elements / maximum number of elements
+        average_solution: True
+        mean_area_neighbors: True # Agent gets mean area of neighbor elements
+        mean_edge_attributes: True # Mean
+      include_globals: False # not used for this method, as global information is in the element features
+  algorithm:
+    network:
+      type_of_base: sweep
+
+    name: sweep_ppo
+    ppo:
+      value_function_scope: graph
+      num_rollout_steps: 512
+    dqn:
+      steps_per_iteration: 96
+      max_replay_buffer_size: 10000
+
+list:
+  recording:
+    nametag: [ "sweep_ppo" ]
+    idx: [ 14 ]
+grid:
+  task:
+    mesh_refinement:
+      maximum_elements: [ 500, 750, 1000, 1500, 2000,
+                          2500, 3000, 4000, 5000, 6000 ]
+---
+name: linear_elasticity_oracle_maxheuristic
+repetitions: 1
+reps_per_job: 1
+reps_in_parallel: 1
+iterations: 1
+
+params:
+  task:
+    mesh_refinement:
+      fem:
+        error_metric: maximum
+---
+name: linear_elasticity_oracle_heuristic
+repetitions: 1
+reps_per_job: 1
+reps_in_parallel: 1
+iterations: 1
+
+---
+name: linear_elasticity_uniform_mesh
+repetitions: 1
+reps_per_job: 1
+reps_in_parallel: 1
+iterations: 1
+params:
+  task:
+    mesh_refinement:
+      maximum_elements: 100000

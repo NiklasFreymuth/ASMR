@@ -1,0 +1,194 @@
+# mesh refinement experiments for the cluster
+
+name: "SLURM"   # MUST BE "SLURM"
+
+# Required
+partition: "single"
+job-name: "ASMR"    # this will be the experiment name in slurm
+num_parallel_jobs: 30
+time: 4320  # in minutes
+ntasks: 1
+cpus-per-task: 16
+mem-per-cpu: 8000
+
+slurm_log: "./slurmlog"     # optional. dir in which slurm output and error logs will be saved.
+
+---
+
+repetitions: 10
+reps_per_job: 8
+reps_in_parallel: 8
+iterations: 801
+
+name: "DEFAULT"   # MUST BE DEFAULT
+import_path: "../default.yaml"
+
+params:
+  recording:
+    wandb:
+      enabled: True  # whether to use the wandb logger or not
+      plot_frequency: 100  # If wandb is enabled, how often to log plots online. High frequencies take up a lot of space.
+      project_name: ASMR  # name of the project
+      task_name: asmr_exp
+      tags: [ "asmr" ]  # list of custom tags to sort/find these runs by
+    checkpoint_frequency: 100
+  task:
+    environment: mesh_refinement
+    mesh_refinement:
+      num_timesteps: 6
+      element_penalty: 1.0e-2
+      element_limit_penalty: 1000
+      maximum_elements: 20000
+
+      refinement_strategy: discrete
+      reward_type: spatial_area
+
+      fem:
+        error_metric: mean
+        plot_resolution: 101
+        num_pdes: 100
+        domain:
+          initial_meshing_method: meshpy
+          num_integration_refinements: 6  # how many times to refine the initial mesh to get the reference mesh
+          fixed_domain: False
+          max_initial_element_volume: 0.05
+
+          # everything below is pde-specific
+          domain_type: symmetric #symmetric_hole #  either symmetric_hole, convex_polygon, a simple mesh such as hexagon, circle or symmetric
+
+          # convex polygon parameters
+          num_boundary_nodes: 10
+          maximum_distortion: 0.2
+
+          # symmetric hole parameters
+          mean_hole_size: 0.15
+          maximum_size_distortion: 0.1
+          maximum_position_distortion: 0.3  # also doubles for the l-shape
+        pde_type: poisson  # either poisson, laplace, stokes_flow, linear_elasticity or heat_diffusion
+        poisson:
+          fixed_load: False
+
+          # gmm parameters
+          num_components: 3  # number of GMM components
+          mean_position_range: 0.4  # maximum deviation range of the gmm mean from (0.5, 0.5)
+          lower_covariance_bound: 0.0001  # minimum value of the isotropic covariance matrix
+          upper_covariance_bound: 0.001  # maximum value of the isotropic covariance matrix
+
+          element_features:
+            load_function: True
+        laplace:
+          element_features:
+            distance_to_source: True  # whether to include the closest distance of the face midpoints to the source
+        stokes_flow:
+          fixed_velocity: False  # whether to re-draw a new velocity with every reset() or use the same velocity
+          # during training
+          lower_velocity: 0.5  # lower bound for the velocity. Will be sampled from U[lower_velocity, upper_velocity]
+          upper_velocity: 2.0  # upper bound for the velocity
+          global_features:
+            velocity: True  # whether to include the velocity applied to the right end of the mesh in the observation graph
+        linear_elasticity: # parameters to specify the linear elasticity model, which models a deformable plate and the stress that this deformation causes
+          fixed_displacement: False  # whether to re-draw a new displacement with every reset()
+          # or use the same load during training
+
+          # The following parameters are used to specify a family of displacement applied to the right boundary of
+          # whatever geometry/domain is used for the linear elasticity task
+          # the displacement magnitude is sampled uniformly as
+          # r in [lower_displacement_magnitude, upper_displacement_magnitude] and then added to a random angle
+          # in [0, 2pi].
+          # if fixed_displacement is True, the displacement will have mean magnitude and an angle of 1/4 pi, i.e.,
+          # point upwards in a 45° angle.
+          lower_displacement_magnitude: 0.2
+          upper_displacement_magnitude: 0.8
+
+          relative_stress_weight: 0.5  # weight of the stress in the solution vector relative to that of the displacement.
+          # in [0,1]. A value of 0 means that the stress is not included in the solution vector.
+          # A value of 1 means that the stress is the only component of the solution vector.
+
+          # we additionally allow features that are specific to the used pde type to be included in the observations.
+          # For the linear elasticity equation, we can include the applied x and y displacement as a feature.
+          global_features:
+            x_displacement: True  # whether to include the x displacement applied to the right end of the mesh
+            # in the observation graph
+            y_displacement: True  # whether to include the y displacement applied to the right end of the mesh
+            # in the observation graph
+        heat_diffusion:
+          diffusivity: 0.001
+          fixed_diffusion: False
+          element_features:
+            distance_to_start: True
+            distance_to_end: True
+
+      element_features:
+        x_position: False
+        y_position: False
+        area: True
+        solution_mean: True
+        solution_std: True
+        distance_to_boundary: True
+
+      include_globals: True
+      global_features:
+        num_vertices: True
+        num_elements: True
+        timestep: True
+  algorithm:
+    use_mixed_reward: False  # whether to use a mixed reward or not. If true, the reward is the average of the
+    # global and local reward. If false, the reward is only the local (or global) reward depending on the rest of the
+    # configuration
+    name: ppo
+    verbose: True
+    batch_size: 32  # number of samples to process per step
+    discount_factor: 0.99
+    use_gpu: False
+    sample_buffer_on_gpu: False  # iff use_gpu, decide whether the sample buffer should be on the gpu or not
+    ppo:
+      num_rollout_steps: 256
+      normalize_observations: True  # whether to independently normalize node edge and global graph features
+      normalize_rewards: False  # Whether to normalize the environment rewards according to the PPO scheme
+      epochs_per_iteration: 5
+      value_function_scope: spatial  # Scope of the value function.
+      # Either "agent" for a value function for each node/agent (currently only works for constant numbers of agents)
+      # "spatial" for value function and reward for each node/agent (for variable agents if the env supports it),
+      # "graph" for a single value for the full graph
+
+      clip_range: 0.2
+      gae_lambda: 0.95
+      max_grad_norm: 0.5
+      value_function_coefficient: 0.5
+      value_function_clip_range: 0.2
+    dqn:
+      normalize_observations: False
+      steps_per_iteration: 24
+      initial_replay_buffer_samples: 500
+      initial_sampling_strategy: random
+      num_gradient_steps: 1
+      target_update_rate: 0.99
+      max_grad_norm: 0.5
+      project_to_previous_step_aggregation: "mean"
+      num_exploration_decay_steps: null  # defaults to iteration/2
+      double_q_learning: True
+      dueling: True
+      exploration_method: boltzmann
+      exploration_rate_init: 10
+      exploration_rate_final: 0.01
+      max_replay_buffer_size: 5000
+      use_prioritized_buffer: True
+      prioritized_buffer:
+        alpha: 0.6
+        beta_init: 0.4
+        beta_final: 1.0
+    network:
+      latent_dimension: 32
+
+      base:
+        create_graph_copy: True  # whether to create a copy of the used graph before the forward pass or not
+        assert_graph_shapes: False  # whether to assert correct shapes for the graph before each forward pass or not
+        stack:
+          use_layer_norm: True  # whether to use layer normalization between the message passing blocks or not
+          num_blocks: 2
+          use_residual_connections: True
+          mlp:
+            activation_function: leakyrelu
+            num_layers: 2
+      training:
+        learning_rate: 3.0e-4
