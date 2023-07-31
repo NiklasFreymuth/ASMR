@@ -1,4 +1,4 @@
-# ASMR
+# [Swarm Reinforcement Learning For Adaptive Mesh Refinement (ASMR)](https://arxiv.org/abs/2304.00818)
 
 ## Abstract
 The Finite Element Method, an important technique in engineering, is aided by Adaptive Mesh Refinement (AMR), which dynamically refines mesh regions to allow for a favorable trade-off between computational speed and simulation accuracy.
@@ -11,32 +11,15 @@ Our approach improves computation speed by more than tenfold compared to uniform
 Additionally, we outperform learned baselines and achieve a refinement quality that is on par with a traditional error-based AMR strategy without expensive oracle information about the error signal. 
 Swarm Reinforcement Learning for Adaptive Mesh Refinement
 
+## Schematic
+![Figure 1](images/ASMR_FigureOne.png)
+
 # Getting Started
 
 ## Setting up the environment
 
-This project uses conda (https://docs.conda.io/en/latest/) and pip for handling packages and dependencies.
-
-To get faster package management performance, you can also use mamba instead of conda (https://github.com/conda-forge/miniforge#mambaforge). Make sure you dont use mamba that is installed as a package using conda.
-
-To install mamba on Linux-like OSes use one of the commands below. 
-
-```
-curl -L -O "https://github.com/conda-forge/miniforge/releases/latest/download/Mambaforge-$(uname)-$(uname -m).sh"
-bash Mambaforge-$(uname)-$(uname -m).sh
-```
-
-or
-
-```
-wget "https://github.com/conda-forge/miniforge/releases/latest/download/Mambaforge-$(uname)-$(uname -m).sh"
-bash Mambaforge-$(uname)-$(uname -m).sh
-```
-
-For Windows please see the documentation in the link above or use (not recommended).
-```
-conda install -c conda-forge mamba
-```
+This project uses conda (https://docs.conda.io/en/latest/) (or better yet, mamba https://github.com/conda-forge/miniforge#mambaforge) 
+and pip for handling packages and dependencies.
 
 You should be able to install all requirements using the commands below:
 
