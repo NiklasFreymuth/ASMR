@@ -30,3 +30,6 @@ class ProgressBar:
                                                                 for key, value in formatted_scalars.items()]))[:-2]
             self.scalar_tracker.set_description(description)
             self.progress_bar.update(num_update_steps)
+
+    def update(self, num_update_steps: int = 1, **kwargs):
+        self.__call__(num_update_steps=num_update_steps, **kwargs)

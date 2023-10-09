@@ -35,6 +35,9 @@ def get_loggers(config: ConfigDict,
     if recording_dict.get("checkpoint"):
         from src.recording.loggers.checkpoint_logger import CheckpointLogger
         logger_classes.append(CheckpointLogger)
+    if recording_dict.get("end_of_training_evaluation"):
+        from src.recording.loggers.end_of_training_logger import EndOfTrainingLogger
+        logger_classes.append(EndOfTrainingLogger)
 
     loggers = [logger(config=config, algorithm=algorithm)
                for logger in logger_classes]

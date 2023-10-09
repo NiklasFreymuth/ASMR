@@ -51,7 +51,7 @@ class ScalarsLogger(AbstractLogger):
                      recording_directory=self._recording_directory)
         self._all_scalars = add_to_dictionary(dictionary=self._all_scalars, new_scalars=scalars)
 
-    def finalize(self) -> None:
+    def finalize(self, final_values: ValueDict) -> None:
         """
         Finalizes the recording, e.g., by saving certain things to disk or by postpressing the results in one way or
         another.

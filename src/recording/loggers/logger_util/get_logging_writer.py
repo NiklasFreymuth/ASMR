@@ -32,6 +32,7 @@ def get_logging_writer(writer_name: str, recording_directory:str) -> logging.Log
 
     # add stream to recording file
 
+    os.makedirs(recording_directory, exist_ok=True)
     file_handler = logging.FileHandler(os.path.join(recording_directory, "out.log"))
     file_handler.setFormatter(custom_formatter)
     file_handler.setLevel(logging.INFO)

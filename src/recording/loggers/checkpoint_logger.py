@@ -35,7 +35,7 @@ class CheckpointLogger(AbstractLogger):
                                             is_initial_save=self._is_initial_save)
             self._is_initial_save = False
 
-    def finalize(self) -> None:
+    def finalize(self, final_values: ValueDict) -> None:
         """
         Makes a final checkpoint of the algorithm
         Returns:

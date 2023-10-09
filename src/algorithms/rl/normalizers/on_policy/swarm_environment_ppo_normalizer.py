@@ -2,7 +2,7 @@ import numpy as np
 from stable_baselines3.common.running_mean_std import RunningMeanStd
 
 from src.algorithms.rl.normalizers.swarm_environment_observation_normalizer import SwarmEnvironmentObservationNormalizer
-from src.environments.abstract_swarm_environment import AbstractSwarmEnvironment
+from modules.swarm_environments.abstract_swarm_environment import AbstractSwarmEnvironment
 from util.types import *
 
 
@@ -17,13 +17,12 @@ class SwarmEnvironmentPPONormalizer(SwarmEnvironmentObservationNormalizer):
                  normalize_rewards: bool,
                  normalize_nodes: bool,
                  normalize_edges: bool,
-                 normalize_globals: bool,
                  reward_clip: float = 5,
                  observation_clip: float = 10,
                  epsilon: float = 1.0e-6
                  ):
         super().__init__(graph_environment=graph_environment, normalize_edges=normalize_edges,
-                         normalize_globals=normalize_globals, normalize_nodes=normalize_nodes,
+                         normalize_nodes=normalize_nodes,
                          observation_clip=observation_clip, epsilon=epsilon)
 
         if normalize_rewards:

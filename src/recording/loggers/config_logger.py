@@ -16,8 +16,7 @@ class ConfigLogger(AbstractLogger):
     def __init__(self, config: ConfigDict, algorithm: AbstractIterativeAlgorithm):
         super().__init__(config=config, algorithm=algorithm)
         save_to_yaml(dictionary=config, save_name=self.processed_name,
-                     recording_directory=self._recording_directory,
-                     )
+                     recording_directory=config.get("_recording_structure").get("_recording_dir"))
         self._writer.info(f"Start time: {datetime.datetime.now()}")
         self._writer.info("\n" + pformat(object=config, indent=2))
 
@@ -25,5 +24,5 @@ class ConfigLogger(AbstractLogger):
                       iteration: int) -> None:
         pass
 
-    def finalize(self) -> None:
+    def finalize(self, final_values: ValueDict) -> None:
         pass

@@ -2,9 +2,9 @@ import torch
 import torch.nn as nn
 
 from src.algorithms.rl.architectures.get_swarm_base import get_swarm_base
-from src.environments.abstract_swarm_environment import AbstractSwarmEnvironment
+from modules.swarm_environments.abstract_swarm_environment import AbstractSwarmEnvironment
+from modules.hmpn.abstract.abstract_message_passing_base import AbstractMessagePassingBase
 from src.modules.mlp import MLP
-from src.modules.mpn.message_passing_base import MessagePassingBase
 from util.types import *
 
 
@@ -30,11 +30,11 @@ class DiscreteGraphQNet(nn.Module):
         super(DiscreteGraphQNet, self).__init__()
         mlp_input_dimension = network_config.get("latent_dimension")
         latent_dimension = network_config.get("latent_dimension")
-        critic_mlp = {"activation_function": "tanh",
-                      "num_layers": 2}
-        self.graph_base: MessagePassingBase = get_swarm_base(graph_env=environment,
-                                                             network_config=network_config,
-                                                             device=device)
+        critic_mlp = network_config.get("critic").get("mlp")
+
+        self.graph_base: AbstractMessagePassingBase = get_swarm_base(graph_env=environment,
+                                                                     network_config=network_config,
+                                                                     device=device)
 
         # dueling: use a different architecture and compose the q-values from value and advantage
         self.dueling = dueling

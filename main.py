@@ -1,10 +1,11 @@
 from cw2 import cluster_work, experiment, cw_error
 from cw2.cw_data import cw_logging
 
-from src.algorithms.abstract_iterative_algorithm import AbstractIterativeAlgorithm
-from src.recording.recorder import Recorder
 from util.types import *
 
+if TYPE_CHECKING:
+    from src.algorithms.abstract_iterative_algorithm import AbstractIterativeAlgorithm
+    from src.recording.recorder import Recorder
 
 class IterativeExperiment(experiment.AbstractIterativeExperiment):
     def __init__(self):
@@ -17,6 +18,7 @@ class IterativeExperiment(experiment.AbstractIterativeExperiment):
     def initialize(self, config: ConfigDict, rep: int, logger: cw_logging.LoggerArray) -> None:
         from src.algorithms.get_algorithm import get_algorithm
         from util.initialize_config import initialize_config
+        from src.recording.recorder import Recorder
         import copy
         import numpy as np
         import torch
@@ -51,5 +53,12 @@ class IterativeExperiment(experiment.AbstractIterativeExperiment):
 
 
 if __name__ == '__main__':
+    # import cProfile, pstats
+    # profiler = cProfile.Profile()
+
     cw = cluster_work.ClusterWork(IterativeExperiment)
+    # profiler.enable()
     cw.run()
+    # profiler.disable()
+    # stats = pstats.Stats(profiler).sort_stats('tottime')
+    # stats.dump_stats('out.profile')

@@ -1,4 +1,3 @@
-import os
 from abc import ABC, abstractmethod
 
 from src.algorithms.abstract_iterative_algorithm import AbstractIterativeAlgorithm
@@ -14,8 +13,7 @@ class AbstractLogger(ABC):
         self._algorithm = algorithm
         self._recording_directory: str = get_from_nested_dict(dictionary=config,
                                                               list_of_keys=["_recording_structure", "_recording_dir"],
-                                                              default_return="reports/example/",)
-        os.makedirs(self._recording_directory, exist_ok=True)
+                                                              raise_error=True)
         self._writer = get_logging_writer(writer_name=self.processed_name,
                                           recording_directory=self._recording_directory)
 
@@ -34,7 +32,7 @@ class AbstractLogger(ABC):
         """
         raise NotImplementedError
 
-    def finalize(self) -> None:
+    def finalize(self, final_values: ValueDict) -> None:
         """
         Finalizes the recording, e.g., by saving certain things to disk or by postpressing the results in one way or
         another.

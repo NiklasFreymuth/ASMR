@@ -1,7 +1,7 @@
 import torch
 
+from modules.swarm_environments.abstract_swarm_environment import AbstractSwarmEnvironment
 from src.algorithms.rl.normalizers.abstract_environment_normalizer import AbstractEnvironmentNormalizer
-from src.environments.abstract_swarm_environment import AbstractSwarmEnvironment
 from util.torch_util.torch_running_mean_std import TorchRunningMeanStd
 from util.types import *
 
@@ -12,7 +12,6 @@ class SwarmEnvironmentObservationNormalizer(AbstractEnvironmentNormalizer):
                  graph_environment: AbstractSwarmEnvironment,
                  normalize_nodes: bool,
                  normalize_edges: bool,
-                 normalize_globals: bool,
                  observation_clip: float = 10,
                  epsilon: float = 1.0e-6
                  ):
@@ -22,7 +21,6 @@ class SwarmEnvironmentObservationNormalizer(AbstractEnvironmentNormalizer):
             graph_environment: the graph environment to normalize the observations of
             normalize_nodes: whether to normalize the node features
             normalize_edges: whether to normalize the edge features
-            normalize_globals: whether to normalize the global features
             observation_clip: the maximum absolute value of the normalized observations
             epsilon: a small value to add to the variance to avoid division by zero
 
@@ -41,12 +39,6 @@ class SwarmEnvironmentObservationNormalizer(AbstractEnvironmentNormalizer):
 
         else:
             self.edge_normalizers = None
-
-        if normalize_globals:
-            self.global_normalizer = TorchRunningMeanStd(epsilon=epsilon,
-                                                         shape=(graph_environment.num_global_features,))
-        else:
-            self.global_normalizer = None
 
         self.epsilon = epsilon
         self.observation_clip = observation_clip
@@ -83,14 +75,10 @@ class SwarmEnvironmentObservationNormalizer(AbstractEnvironmentNormalizer):
 
     def update_observations(self, observations: InputBatch):
         # unpack
-        if isinstance(observations, Data):
-            if self.node_normalizers is not None:
-                self.node_normalizers.update(observations.x)
-            if self.edge_normalizers is not None:
-                self.edge_normalizers.update(observations.edge_attr)
-
-        if self.global_normalizer is not None:
-            self.global_normalizer.update(observations.u)
+        if self.node_normalizers is not None:
+            self.node_normalizers.update(observations.x)
+        if self.edge_normalizers is not None:
+            self.edge_normalizers.update(observations.edge_attr)
 
     def normalize_observations(self, observations: InputBatch) -> InputBatch:
         """
@@ -98,17 +86,12 @@ class SwarmEnvironmentObservationNormalizer(AbstractEnvironmentNormalizer):
         Calling this method does not update statistics. It can thus be called for training as well as evaluation.
         """
         # unpack
-        if isinstance(observations, Data):
-            if self.node_normalizers is not None:
-                observations.__setattr__("x", self._normalize_observation(observation=observations.x,
-                                                                          normalizer=self.node_normalizers))
-            if self.edge_normalizers is not None:
-                observations.__setattr__("edge_attr", self._normalize_observation(observation=observations.edge_attr,
-                                                                                  normalizer=self.edge_normalizers))
-
-        if self.global_normalizer is not None:
-            observations.__setattr__("u", self._normalize_observation(observation=observations.u,
-                                                                      normalizer=self.global_normalizer))
+        if self.node_normalizers is not None:
+            observations.__setattr__("x", self._normalize_observation(observation=observations.x,
+                                                                      normalizer=self.node_normalizers))
+        if self.edge_normalizers is not None:
+            observations.__setattr__("edge_attr", self._normalize_observation(observation=observations.edge_attr,
+                                                                              normalizer=self.edge_normalizers))
 
         return observations
 

@@ -5,9 +5,8 @@ from src.algorithms.baselines.buffers.single_agent_on_policy_buffer import Singl
 from src.algorithms.rl.architectures.swarm_ppo_actor_critic import SwarmPPOActorCritic
 from src.algorithms.rl.normalizers.abstract_environment_normalizer import AbstractEnvironmentNormalizer
 from src.algorithms.rl.on_policy.swarm_ppo import SwarmPPO
-from src.environments.abstract_swarm_environment import AbstractSwarmEnvironment
-from src.environments.mesh.mesh_refinement.sweep.sweep_mesh_refinement import SweepMeshRefinement
 from util.types import *
+from modules.swarm_environments import SweepMeshRefinement
 
 
 class SweepPPO(SwarmPPO):
@@ -23,14 +22,8 @@ class SweepPPO(SwarmPPO):
     - Observation space i.e. features an agent gets/uses for decision-making.
     """
 
-    def __init__(self, config: ConfigDict,
-                 environment: Optional[AbstractSwarmEnvironment] = None,
-                 evaluation_environments: Optional[List[AbstractSwarmEnvironment]] = None,
-                 seed: Optional[int] = None) -> None:
-        super().__init__(config=config,
-                         environment=environment,
-                         evaluation_environments=evaluation_environments,
-                         seed=seed)
+    def __init__(self, config: ConfigDict, seed: Optional[int] = None) -> None:
+        super().__init__(config=config, seed=seed)
         self._value_function_scope = "agent"
 
     def _kickoff_environments(self):

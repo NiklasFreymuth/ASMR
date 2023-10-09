@@ -253,7 +253,7 @@ def main():
     from skfem import MeshTri
 
     for initial_resolution in np.arange(10) + 1:
-        print(f"\n Initial Resolution: {initial_resolution}")
+        print(f"\n\n@@@ Initial Resolution: {initial_resolution}")
         # higher numbers correspond to more mesh refinement steps
         mesh = MeshTri.init_symmetric().refined(int(initial_resolution))
         triangles = mesh.p[:, mesh.t].T

@@ -1,27 +1,31 @@
-# mesh refinement experiments for the cluster
-
+# Horeka
 name: "SLURM"   # MUST BE "SLURM"
 
 # Required
-partition: "single"
-job-name: "poisson"    # this will be the experiments name in slurm
-num_parallel_jobs: 30  # to prevent wandb overload
-time: 4320  # in minutes
+partition: "cpuonly"
+job-name: "poisson"    # this will be the experiment name in slurm
+num_parallel_jobs: 20
+time: 4000 # in minutes
+cpus-per-task: 76
 ntasks: 1
-cpus-per-task: 16
-mem-per-cpu: 8000
+
+sbatch_args: # Dictionary of SBATCH keywords and arguments
+  distribution: block  # To have repetitions of the same exp be distributed to different nodes
+  nodes: 1
+slurm_log: "./slurmlog"     # optional. dir in which slurm output and error logs will be saved.
 
 ---
 
 name: "DEFAULT"   # MUST BE DEFAULT
 import_path: "asmr_default.yaml"
 params:
-  task:
+  environment:
     mesh_refinement:
       fem:
         pde_type: poisson
         domain:
           domain_type: lshape
+          mean_hole_size: 0.15
           maximum_position_distortion: 0.3  # also doubles for the l-shape
       evaluation:
         fem:
@@ -31,86 +35,170 @@ params:
             maximum_position_distortion: [ 0.0, 0.3 ]
           poisson:
             fixed_load: [ True, False ]
+      # final is set by default, I.e., we want to evaluate on the same setting that we use during training but with
+      # new PDEs
 
 
 ---
 # poisson experiments, including baselines
+# this experiment is a list of 4 different methods that use a scaled area reward formulation
 name: poisson_asmr
 params:
   algorithm:
-    use_mixed_reward: True
+    mixed_return:
+      global_weight: 0.5
+
 list:
   recording:
-    nametag: [ "asmr" ]
-    idx: [ 0 ]  # give a number to the experiments for easier comparison in the pareto plots
-
+    nametag: [ "asmr", "asmr_dqn",  "asmr_gat" ]
+    idx: [ 1000, 1001, 1002 ]  # give a number to the experiments for easier comparison in the pareto plots
+    # 1001 would dqn with normalization, which is worse
+  algorithm:
+    name: [ "ppo", "dqn",  "ppo" ]
+    network:
+      type_of_base: [ mpn, mpn, vdgn_gat ]
 
 grid:
-  task:
+  environment:
     mesh_refinement:
-      element_penalty: [ 0.1, 0.05, 0.03, 0.02, 0.01,
-                         0.0075, 0.005, 0.004, 0.003, 0.002 ]
-      # working element penalties for this task
+      element_penalty:
+        value: [ 0.1, 0.05, 0.03, 0.02, 0.01,
+                 0.0075, 0.005, 0.004, 0.003, 0.002 ]
 
 ---
-name: poisson_argmax
+name: poisson_features
+# different features for the graph
+
+params:
+  algorithm:
+    mixed_return:
+      global_weight: 0.5
+list:
+  recording:
+    nametag: [ "no_load_function", "node_positions", "no_solution" ]
+    idx: [ 1020, 1021, 1022 ]
+  environment:
+    mesh_refinement:
+      fem:
+        poisson:
+          element_features:
+            load_function: [ False, True, True ]
+      element_features:
+        x_position: [ False, True, False ]
+        y_position: [ False, True, False ]
+        solution_mean: [ True, True, False ]
+        solution_std: [ True, True, False ]
+grid:
+  environment:
+    mesh_refinement:
+      element_penalty:
+        value: [ 0.1, 0.05, 0.03, 0.02, 0.01, 0.0075, 0.005, 0.004, 0.003, 0.002 ]
+
+---
+name: poisson_num_pdes
+# different number of pdes
+
+params:
+  algorithm:
+    mixed_return:
+      global_weight: 0.5
+list:
+  recording:
+    nametag: [ "1_pde", "10_pdes", "1000_pdes" ]
+    idx: [ 1023, 1024, 1022 ]
+  environment:
+    mesh_refinement:
+      fem:
+        num_pdes: [ 1, 10, 1000 ]
+
+grid:
+  environment:
+    mesh_refinement:
+      element_penalty:
+        value: [ 0.1, 0.05, 0.03, 0.02, 0.01,
+                 0.0075, 0.005, 0.004, 0.003, 0.002 ]
+
+---
+############################
+### Baseline experiments ###
+############################
+# we have 3 baseline experiments:
+# 1. single_agent https://arxiv.org/pdf/2103.01342.pdf
+# 2. vdgn https://arxiv.org/pdf/2211.00801v3.pdf
+# 3. sweep https://arxiv.org/pdf/2209.12351.pdf
+#
+# for each of these, we have 2 variants:
+# 1. ppo
+# 2. dqn
+# (3.) for vdgn, we additionally consider a gat variant
+
+# making for a total of 6 baseline experiments. We only do the full 6 experiments here, and take the better RL
+# algorithm for each method for the other experiments
+name: poisson_single_agent
 params:
   algorithm:
     ppo:
       value_function_scope: graph
     dqn:
       max_replay_buffer_size: 10000
-  task:
+  environment:
     mesh_refinement:
-      refinement_strategy: argmax  # refine exactly 1 element in every step as described in the argmax paper
-      element_penalty: 0.0  # no face penalty since we refine exactly 1 element in every step in any case
-      reward_type: argmax  # reward type of the original baseline paper. No need to do area comparisons here
+      refinement_strategy: single_agent  # refine exactly 1 element in every step as described in the single_agent paper
+      element_penalty:
+        value: 0.0  # no face penalty since we refine exactly 1 element in every step in any case
+      reward_type: single_agent  # reward type of the original baseline paper. No need to do area comparisons here
       num_timesteps: 100  # give enough steps to make a nice refinement
 
 list:
   recording:
-    nametag: [ argmax_dqn ]
-    idx: [ 11 ]
+    nametag: [ single_agent_ppo, single_agent_dqn ]
+    idx: [ 2000, 2001 ]
   algorithm:
-    name: [ argmax_dqn ]
+    name: [ single_agent_ppo, single_agent_dqn ]
+    network:
+      base:
+        architecture: [ "mpn", "mpn" ]
 grid:
-  task:
+  environment:
     mesh_refinement:
       num_timesteps: [ 25, 50, 75, 100, 150,
                        200, 250, 300, 350, 400 ]
 
 ---
-
 name: poisson_vdgn
 
 params:
-  task:
+  environment:
     mesh_refinement:
       reward_type: vdgn
-    # vdgn-ppo is a version of ppo with global rewards (as returned by the "vdgn" reward type) and a value
-    # decomposition, which is given by the "value_function_scope"="spatial".
   algorithm:
     name: ppo
-
+    ppo:
+      value_function_scope: vdn
 list:
   recording:
-    nametag: [ "vdgn_ppo" ]
-    idx: [ 12 ]
-
+    nametag: [ "vdgn_ppo", "vdgn_ppo_gat", "vdgn_dqn", "vdgn_dqn_gat" ]
+    idx: [ 2100, 2101, 2102, 2103 ]
+  algorithm:
+    name: [ppo, ppo, vdgn_dqn, vdgn_dqn]
+    network:
+      type_of_base: [ mpn, vdgn_gat, mpn, gat ]
 grid:
-  task:
+  environment:
     mesh_refinement:
-      element_penalty: [ 5.0e-2, 1.0e-2, 5.0e-3, 2.0e-3, 1.0e-3,
-                         5.0e-4, 2.0e-4, 1.0e-4, 5.0e-5, 2.0e-5 ]
-
+      element_penalty:
+        value: [ 5.0e-2, 1.0e-2, 5.0e-3, 2.0e-3, 1.0e-3,
+                 5.0e-4, 2.0e-4, 1.0e-4, 5.0e-5, 2.0e-5
+                 ]
 ---
 name: poisson_sweep
 
 params:
-  task:
+  environment:
     environment_class: sweep_mesh_refinement
     mesh_refinement:
-      element_penalty: 25
+      element_penalty:
+        value: 25
       num_training_timesteps: 200 # use different episode lengths for single agent training & multi-agent evaluation
       # here, we use 512 steps to give the agent enough time to learn the task
       num_evaluation_timesteps: 6
@@ -118,6 +206,7 @@ params:
 
       element_features: # Sweep exclusive features.
         resource_budget: True # current number of elements / maximum number of elements
+        average_error: False
         average_solution: True
         mean_area_neighbors: True # Agent gets mean area of neighbor elements
         mean_edge_attributes: True # Mean
@@ -133,95 +222,29 @@ params:
     dqn:
       steps_per_iteration: 96
       max_replay_buffer_size: 10000
-
 list:
   recording:
-    nametag: [ "sweep_ppo" ]
-    idx: [ 14 ]
-grid:
-  task:
-    mesh_refinement:
-      maximum_elements: [ 400, 500, 750, 1000, 1500,
-                          2000, 2500, 3000, 4000, 5000 ]
----
-
-
-#################
-### Ablations ###
-#################
-name: poisson_dqn
-# poisson dqn experiments. "what if we use a DQN instead"
-
-params:
+    nametag: [ "sweep_ppo", "sweep_dqn" ]
+    idx: [ 2200, 2201 ]
   algorithm:
-    name: dqn
-    use_mixed_reward: True
-list:
-  recording:
-    nametag: [ asmr_dqn ]
-    idx: [ 30 ]
+    name: [ sweep_ppo, sweep_dqn ]
 grid:
-  task:
+  environment:
     mesh_refinement:
-      element_penalty: [ 0.1, 0.05, 0.03, 0.02, 0.01,
-                         0.0075, 0.005, 0.004, 0.003, 0.002 ]
+      maximum_elements: [ 200, 300, 400, 500, 750,
+                          1000, 1500, 2000, 2500, 3000 ]
 
 ---
-name: poisson_features
-# different features for the graph
-
-params:
-  algorithm:
-    use_mixed_reward: True
-list:
-  recording:
-    nametag: [ "no_load_function", "node_positions", "no_solution" ]
-    idx: [ 31, 32, 33 ]
-  task:
-    mesh_refinement:
-      fem:
-        poisson:
-          element_features:
-            load_function: [ False, True, True ]
-      element_features:
-        x_position: [ False, True, False ]
-        y_position: [ False, True, False ]
-        solution_mean: [ True, True, False ]
-        solution_std: [ True, True, False ]
-grid:
-  task:
-    mesh_refinement:
-      element_penalty: [ 0.1, 0.05, 0.03, 0.02, 0.01,
-                         0.0075, 0.005, 0.004, 0.003, 0.002 ]
-
----
-name: poisson_num_pdes
-# different number of pdes
-
-params:
-  algorithm:
-    use_mixed_reward: True
-list:
-  recording:
-    nametag: [ "1_pde", "10_pdes", "1000_pdes" ]
-    idx: [ 40, 41, 42 ]
-  task:
-    mesh_refinement:
-      fem:
-        num_pdes: [ 1, 10, 1000 ]
-
-grid:
-  task:
-    mesh_refinement:
-      element_penalty: [ 0.1, 0.05, 0.03, 0.02, 0.01,
-                         0.0075, 0.005, 0.004, 0.003, 0.002 ]
-
----
-name: poisson_oracle_heuristic
+name: poisson_no_max_elements
+# for the oracle, zz error and uniform refinement
 repetitions: 1
 reps_per_job: 1
 reps_in_parallel: 1
 iterations: 1
+params:
+  environment:
+    mesh_refinement:
+      maximum_elements: 100000
 ---
 name: poisson_oracle_maxheuristic
 repetitions: 1
@@ -234,13 +257,3 @@ params:
     mesh_refinement:
       fem:
         error_metric: maximum
----
-name: poisson_uniform_mesh
-repetitions: 1
-reps_per_job: 1
-reps_in_parallel: 1
-iterations: 1
-params:
-  task:
-    mesh_refinement:
-      maximum_elements: 100000

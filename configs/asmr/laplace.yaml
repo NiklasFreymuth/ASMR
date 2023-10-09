@@ -1,22 +1,25 @@
-# mesh refinement experiments for the cluster
-
+# Horeka
 name: "SLURM"   # MUST BE "SLURM"
 
 # Required
-partition: "single"
-job-name: "laplace"    # this will be the experiments name in slurm
-num_parallel_jobs: 30  # to prevent wandb overload
-time: 4320  # in minutes
+partition: "cpuonly"
+job-name: "laplace"    # this will be the experiment name in slurm
+num_parallel_jobs: 15
+time: 4000 # in minutes
+cpus-per-task: 76
 ntasks: 1
-cpus-per-task: 16
-mem-per-cpu: 8000
+
+sbatch_args: # Dictionary of SBATCH keywords and arguments
+  distribution: block  # To have repetitions of the same exp be distributed to different nodes
+  nodes: 1
+slurm_log: "./slurmlog"     # optional. dir in which slurm output and error logs will be saved.
 
 ---
 
 name: "DEFAULT"   # MUST BE DEFAULT
 import_path: "asmr_default.yaml"
 params:
-  task:
+  environment:
     mesh_refinement:
       fem:
         pde_type: laplace
@@ -37,64 +40,43 @@ params:
 # main laplace experiments, including ablations on the spread between local and global rewards
 # this experiment is a list of 4 different methods that use a scaled area reward formulation
 name: laplace_asmr
-params:
-  algorithm:
-    use_mixed_reward: True
 list:
   recording:
     nametag: [ "asmr" ]
-    idx: [ 0 ] # give a number to the experiments for easier comparison in the pareto plots
+    idx: [ 1000 ] # give a number to the experiments for easier comparison in the pareto plots
   algorithm:
     ppo:
       value_function_scope: [ spatial ]
+    mixed_return:
+      global_weight: [ 0.5 ]
 
 grid:
-  task:
+  environment:
     mesh_refinement:
-      element_penalty: [ 0.3, 0.2, 0.1, 0.075, 0.05,
-                         0.04, 0.03, 0.02, 0.015, 0.01 ]
-
-
+      element_penalty:
+        value: [ 0.3, 0.2, 0.1, 0.075, 0.05, 0.04, 0.03, 0.02, 0.015, 0.01 ]
 ---
-############################
-### Baseline experiments ###
-############################
-# we have 3 baseline experiments:
-# 1. argmax https://arxiv.org/pdf/2103.01342.pdf
-# 2. vdgn https://arxiv.org/pdf/2211.00801v3.pdf
-# 3. sweep https://arxiv.org/pdf/2209.12351.pdf
-#
-# for each of these, we have 2 variants:
-# 1. ppo
-# 2. dqn
-
-# making for a total of 6 baseline experiments. We only do the full 6 experiments here, and take the better RL
-# algorithm for each method for the other experiments
-
-name: laplace_argmax
+name: laplace_single_agent
 params:
   algorithm:
     ppo:
       value_function_scope: graph
-    dqn:
-      max_replay_buffer_size: 10000
-  task:
+  environment:
     mesh_refinement:
-      refinement_strategy: argmax  # refine exactly 1 element in every step as described in the argmax paper
-      element_penalty: 0.0  # no face penalty since we refine exactly 1 element in every step in any case
-      reward_type: argmax  # reward type of the original baseline paper. No need to do area comparisons here
+      refinement_strategy: single_agent  # refine exactly 1 element in every step as described in the single_agent paper
+      element_penalty:
+        value: 0.0  # no face penalty since we refine exactly 1 element in every step in any case
+      reward_type: single_agent  # reward type of the original baseline paper. No need to do area comparisons here
       num_timesteps: 100  # give enough steps to make a nice refinement
 
 list:
   recording:
-    nametag: [ argmax_ppo, argmax_dqn ]
-    idx: [ 10, 11 ]
+    nametag: [ single_agent_ppo ]
+    idx: [ 2000 ]
   algorithm:
-    # argmax-ppo is a variant of ppo where only a single element is refined in every step and the reward is
-    # given by that proposed in the respective paper
-    name: [ ppo, argmax_dqn ]
+    name: [ single_agent_ppo ]
 grid:
-  task:
+  environment:
     mesh_refinement:
       num_timesteps: [ 25, 50, 75, 100, 150,
                        200, 250, 300, 350, 400 ]
@@ -103,35 +85,35 @@ grid:
 name: laplace_vdgn
 
 params:
-  task:
+  environment:
     mesh_refinement:
       reward_type: vdgn
-
+  algorithm:
+    ppo:
+      value_function_scope: vdn
 list:
   recording:
-    nametag:  ["vdgn_ppo", "vdgn_dqn" ]
-    idx: [ 12, 13 ]
-  algorithm:
-    name:  [ ppo, vdgn ]
-      # vdgn-ppo is a version of ppo with global rewards (as returned by the "vdgn" reward type) and a value
-      # decomposition, which is given by the "value_function_scope"="spatial".
-    network:
-      training:
-        learning_rate: [ 3.0e-4, 1.0e-5 ]
+    nametag: [ "vdgn_ppo" ]
+    idx: [ 2100 ]
 grid:
-  task:
+  environment:
     mesh_refinement:
-      element_penalty: [ 5.0e-2, 1.0e-2, 5.0e-3, 2.0e-3, 1.0e-3,
-                         5.0e-4, 2.0e-4, 1.0e-4, 5.0e-5, 2.0e-5 ]
-
+      element_penalty:
+        value: [ 5.0e-2, 1.0e-2, 5.0e-3, 2.0e-3, 1.0e-3,
+                 5.0e-4, 2.0e-4, 1.0e-4, 5.0e-5, 2.0e-5
+        ]
 ---
 name: laplace_sweep
 
 params:
-  task:
+  recording:
+    nametag: sweep_ppo
+    idx: 14
+  environment:
     environment_class: sweep_mesh_refinement
     mesh_refinement:
-      element_penalty: 25
+      element_penalty:
+        value: 25
       num_training_timesteps: 200 # use different episode lengths for single agent training & multi-agent evaluation
       # here, we use 512 steps to give the agent enough time to learn the task
       num_evaluation_timesteps: 6
@@ -139,6 +121,7 @@ params:
 
       element_features: # Sweep exclusive features.
         resource_budget: True # current number of elements / maximum number of elements
+        average_error: False
         average_solution: True
         mean_area_neighbors: True # Agent gets mean area of neighbor elements
         mean_edge_attributes: True # Mean
@@ -146,6 +129,8 @@ params:
   algorithm:
     network:
       type_of_base: sweep
+
+    name: sweep_ppo
     ppo:
       value_function_scope: graph
       num_rollout_steps: 512
@@ -155,22 +140,160 @@ params:
 
 list:
   recording:
-    nametag: [ "sweep_ppo", "sweep_dqn" ]
-    idx: [ 14, 15 ]
+    nametag: [ "sweep_ppo" ]
+    idx: [ 2200 ]
   algorithm:
-    name: [ sweep_ppo, sweep_dqn ]
+    name: [ sweep_ppo ]
 grid:
-  task:
+  environment:
     mesh_refinement:
       maximum_elements: [ 200, 300, 400, 500, 750,
-                          1000, 1500, 2000, 2500, 3000]
+                          1000, 1500, 2000, 2500, 3000
+      ]
+
 ---
-name: laplace_oracle_heuristic
+name: laplace_no_max_elements
+repetitions: 1
+reps_per_job: 1
+reps_in_parallel: 1
+iterations: 1
+params:
+  environment:
+    mesh_refinement:
+      maximum_elements: 1000000
+
+---
+params:
+  environment:
+    mesh_refinement:
+      num_timesteps: 4
+name: laplace_asmr_small
+list:
+  recording:
+    nametag: [ "asmr_small" ]
+    idx: [ 1010 ] # give a number to the experiments for easier comparison in the pareto plots
+  algorithm:
+    ppo:
+      value_function_scope: [ spatial ]
+    mixed_return:
+      global_weight: [ 0.5 ]
+
+grid:
+  environment:
+    mesh_refinement:
+      element_penalty:
+        value: [ 0.5, 0.4, 0.3, 0.2, 0.1, 0.075,
+                 0.05, 0.04, 0.03, 0.02, 0.015, 0.01 ]
+---
+name: laplace_single_agent_small
+params:
+  algorithm:
+    ppo:
+      value_function_scope: graph
+  environment:
+    mesh_refinement:
+      refinement_strategy: single_agent  # refine exactly 1 element in every step as described in the single_agent paper
+      element_penalty:
+        value: 0.0  # no face penalty since we refine exactly 1 element in every step in any case
+      reward_type: single_agent  # reward type of the original baseline paper. No need to do area comparisons here
+      num_timesteps: 100  # give enough steps to make a nice refinement
+
+list:
+  recording:
+    nametag: [ "single_agent_ppo_small" ]
+    idx: [ 2010 ]
+  algorithm:
+    name: [ single_agent_ppo ]
+grid:
+  environment:
+    mesh_refinement:
+      num_timesteps: [ 5, 10, 15, 20, 30,
+                       40, 50, 60, 75, 100
+      ]
+
+---
+name: laplace_vdgn_small
+params:
+  environment:
+    mesh_refinement:
+      num_timesteps: 4
+      reward_type: vdgn
+  algorithm:
+    name: ppo
+    ppo:
+      value_function_scope: vdn
+
+list:
+  recording:
+    nametag: [ "vdgn_ppo_small" ]
+    idx: [ 2110 ]
+grid:
+  environment:
+    mesh_refinement:
+      element_penalty:
+        value: [ 5.0e-1, 1.0e-1, 5.0e-2, 1.0e-2, 5.0e-3, 2.0e-3,
+                 1.0e-3, 5.0e-4, 2.0e-4, 1.0e-4, 5.0e-5, 2.0e-5
+        ]
+
+---
+name: laplace_sweep_small
+
+params:
+  environment:
+    environment_class: sweep_mesh_refinement
+    mesh_refinement:
+      num_timesteps: 4
+      element_penalty:
+        value: 25
+      num_training_timesteps: 200 # use different episode lengths for single agent training & multi-agent evaluation
+      # here, we use 512 steps to give the agent enough time to learn the task
+      num_evaluation_timesteps: 4
+      reward_type: sweep  # use the sweep reward
+
+      element_features: # Sweep exclusive features.
+        resource_budget: True # current number of elements / maximum number of elements
+        average_error: False
+        average_solution: True
+        mean_area_neighbors: True # Agent gets mean area of neighbor elements
+        mean_edge_attributes: True # Mean
+      include_globals: False # not used for this method, as global information is in the element features
+  algorithm:
+    network:
+      type_of_base: sweep
+
+    name: sweep_ppo
+    ppo:
+      value_function_scope: graph
+      num_rollout_steps: 512
+    dqn:
+      steps_per_iteration: 96
+      max_replay_buffer_size: 10000
+
+list:
+  recording:
+    nametag: [ "sweep_ppo_small" ]
+    idx: [ 2210]
+  algorithm:
+    name: [ sweep_ppo ]
+grid:
+  environment:
+    mesh_refinement:
+      maximum_elements: [ 25, 50, 75, 100, 150, 200,
+                          300, 400, 500, 600, 750, 1000
+      ]
+
+---
+name: laplace_no_max_elements_small
 repetitions: 1
 reps_per_job: 1
 reps_in_parallel: 1
 iterations: 1
 
+params:
+  environment:
+    mesh_refinement:
+      num_timesteps: 4
+      maximum_elements: 1000000
 ---
 name: laplace_oracle_maxheuristic
 repetitions: 1
@@ -183,13 +306,3 @@ params:
     mesh_refinement:
       fem:
         error_metric: maximum
----
-name: laplace_uniform_mesh
-repetitions: 1
-reps_per_job: 1
-reps_in_parallel: 1
-iterations: 1
-params:
-  task:
-    mesh_refinement:
-      maximum_elements: 100000

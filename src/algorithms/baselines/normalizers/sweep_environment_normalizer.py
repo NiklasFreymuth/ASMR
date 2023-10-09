@@ -1,7 +1,7 @@
 import torch
 
 from src.algorithms.rl.normalizers.abstract_environment_normalizer import AbstractEnvironmentNormalizer
-from src.environments.abstract_swarm_environment import AbstractSwarmEnvironment
+from modules.swarm_environments.abstract_swarm_environment import AbstractSwarmEnvironment
 from util.types import *
 from util.torch_util.torch_running_mean_std import TorchRunningMeanStd
 
@@ -14,6 +14,13 @@ class SweepEnvironmentNormalizer(AbstractEnvironmentNormalizer):
                  epsilon: float = 1.0e-6, *args, **kwargs):
         if normalize_nodes:
             num_node_features = graph_environment.num_node_features
+            if isinstance(graph_environment.num_node_features, int):
+                pass
+            elif isinstance(graph_environment.num_node_features, dict):
+                num_node_features = num_node_features[graph_environment.agent_node_type]
+            else:
+                raise ValueError(f"Unknown type for num_node_features: {type(graph_environment.num_node_features)}")
+
             self.node_normalizers = TorchRunningMeanStd(epsilon=epsilon,
                                                         shape=(num_node_features,))
 

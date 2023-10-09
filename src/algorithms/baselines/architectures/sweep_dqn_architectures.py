@@ -43,6 +43,11 @@ class SweepDQNPolicy(SwarmDQNPolicy):
         self.target_q_network = copy.deepcopy(self.q_network)
         self.target_q_network.trainable = False
 
+    #  the drl_dqn gradient step is a bit weird, since we can not really compute the q values for the next
+    #  observations, since we do not have the next observations for a single agent. We could use agent mappings to
+    #  project the q values to the previous step, but this is not really what happens in the paper
+    #  Check https://arxiv.org/pdf/2209.12351.pdf for reference
+
     def gradient_step(self, replay_data) -> Tuple[torch.Tensor, np.array]:
         prioritized_replay = isinstance(replay_data, DQNPrioritizedBufferSamples)
         observations, actions, rewards, next_observations, dones, weights = self._extract_replay_data(replay_data,

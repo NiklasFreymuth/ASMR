@@ -22,7 +22,6 @@ dependencies:
   - pip=22.0.4
   - pip:
       - -r ./requirements-cpu.txt
-# need to install cw2 and optunawork afterwards using the pip requirements.txt
 
 # pytorch related installs may not work on windows. These include pytorch, pyg and stable-baselines3.
 # see e.g., https://pytorch-geometric.readthedocs.io/en/latest/notes/installation.html

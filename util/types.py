@@ -1,7 +1,9 @@
-from typing import Dict, Any, List, Union, Iterable, Callable, Optional, Tuple, Generator, Type, Set, Type, Literal
+from typing import Dict, Any, List, Union, Iterable, Callable, Optional, Tuple, Generator, Type, Set, Type, Literal, \
+    TYPE_CHECKING
 from numpy import ndarray
 from torch import Tensor
 from torch_geometric.data.batch import Batch
+from torch_geometric.data.hetero_data import HeteroData
 from torch_geometric.data.data import Data, BaseData
 import copy
 from functools import partial
@@ -16,5 +18,5 @@ ValueDict = Dict[Key, Any]
 Result = Union[List, int, float, ndarray]
 Shape = Union[int, Iterable, ndarray]
 
-InputBatch = Union[Dict[Key, Tensor], Tensor, Batch, Data, None]
+InputBatch = Union[Dict[Key, Tensor], Tensor, Batch, Data, HeteroData, None]
 OutputTensorDict = Dict[Key, Tensor]

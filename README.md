@@ -1,4 +1,4 @@
-# [Swarm Reinforcement Learning For Adaptive Mesh Refinement (ASMR)](https://arxiv.org/abs/2304.00818)
+# Swarm Reinforcement Learning For Adaptive Mesh Refinement (ASMR)
 
 ## Abstract
 The Finite Element Method, an important technique in engineering, is aided by Adaptive Mesh Refinement (AMR), which dynamically refines mesh regions to allow for a favorable trade-off between computational speed and simulation accuracy.
@@ -12,7 +12,7 @@ Additionally, we outperform learned baselines and achieve a refinement quality t
 Swarm Reinforcement Learning for Adaptive Mesh Refinement
 
 ## Schematic
-![Figure 1](images/ASMR_FigureOne.png)
+![Figure 1](ASMR_FigureOne.png)
 
 # Getting Started
 
@@ -82,19 +82,11 @@ This folder contains everything that the loggers pick up, organized by the name 
 
 ## Source
 
-The `src` folder contains the source code of this project. It is organized into the following subfolders:
+The `src` folder contains the source code for the algorithms. It is organized into the following subfolders:
 
 ### Algorithms
 This folder includes all the iterative training algorithms, that are used by [cw2](https://www.github.com/ALRhub/cw2).
 The `rl` directory implements common Reinforcement Learning algorithms, such as `PPO` and `DQN`.
-
-### Environments
-The environments include a `Mesh Refinement` and a `Sweep Mesh Refinement` environment.
-Both deal with geometric graphs of varying size that represent meshes over a fixed boundary 
-and are used for the finite element method.
-
-### Modules
-Building blocks for the Message Passing Network architecture.
 
 ### Recording
 
@@ -116,15 +108,12 @@ This includes additions torch code, common definitions and functions, and save a
 The folder `asmr_evaluations` contains the code for the evaluation of the ASMR algorithm and all baselines. It uses
 checkpoint files from the training of the algorithms and evaluates them on the separate evaluation PDE.
 
-# Citation
+## Modules
 
-Please cite this work as
-```
-@article{freymuth2023swarm,
-  title={Swarm Reinforcement Learning For Adaptive Mesh Refinement},
-  author={Freymuth, Niklas and Dahlinger, Philipp and W{\"u}rth, Tobias and K{\"a}rger, Luise and Neumann, Gerhard},
-  journal={Neural Information Processing Systems},
-  volume={36},
-  year={2023}
-}
-```
+### SwarmEnvironments
+The environments include a `Mesh Refinement` and a `Sweep Mesh Refinement` environment.
+Both deal with geometric graphs of varying size that represent meshes over a fixed boundary 
+and are used for the finite element method.
+
+### HMPN
+Building blocks for the Message Passing Network architecture.

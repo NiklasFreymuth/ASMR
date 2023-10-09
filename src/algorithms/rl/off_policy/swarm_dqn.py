@@ -8,12 +8,11 @@ from src.algorithms.rl.normalizers.dummy_swarm_environment_normalizer import Dum
 from src.algorithms.rl.normalizers.swarm_environment_observation_normalizer import SwarmEnvironmentObservationNormalizer
 from src.algorithms.rl.off_policy.buffers.swarm_dqn_buffer import SwarmDQNBuffer
 from src.algorithms.rl.off_policy.buffers.swarm_dqn_prioritized_buffer import SwarmDQNPrioritizedBuffer
-from src.environments.abstract_swarm_environment import AbstractSwarmEnvironment
-from src.modules.mpn.common.hmpn_util import make_batch
+from modules.hmpn.common.hmpn_util import make_batch
 from util.function import prefix_keys, add_to_dictionary, safe_mean, safe_max, safe_min
 from util.progress_bar import ProgressBar
-from util.torch_util.torch_util import detach
 from util.types import *
+from util.torch_util.torch_util import detach
 
 
 class SwarmDQN(AbstractRLAlgorithm):
@@ -21,14 +20,8 @@ class SwarmDQN(AbstractRLAlgorithm):
     Graph-Based Deep Q-Networks implementation compatible with our GraphEnvironments.
     """
 
-    def __init__(self, config: ConfigDict,
-                 environment: Optional[AbstractSwarmEnvironment] = None,
-                 evaluation_environments: Optional[List[AbstractSwarmEnvironment]] = None,
-                 seed: Optional[int] = None) -> None:
-        super().__init__(config=config,
-                         environment=environment,
-                         evaluation_environments=evaluation_environments,
-                         seed=seed)
+    def __init__(self, config: ConfigDict, seed: Optional[int] = None) -> None:
+        super().__init__(config=config, seed=seed)
 
         # DQN specific config parts
         dqn_config: ConfigDict = self.algorithm_config.get("dqn")
@@ -68,7 +61,9 @@ class SwarmDQN(AbstractRLAlgorithm):
                                              scalar_reward_and_done=self.scalar_rewards_and_dones)
         else:
             return SwarmDQNBuffer(buffer_size=buffer_size,
-                                  device=buffer_device, scalar_reward_and_done=self.scalar_rewards_and_dones)
+                                  device=buffer_device,
+                                  scalar_reward_and_done=self.scalar_rewards_and_dones
+                                  )
 
     def _build_policy(self) -> SwarmDQNPolicy:
         return self.policy_class(environment=self._environment,
@@ -80,12 +75,10 @@ class SwarmDQN(AbstractRLAlgorithm):
         # normalization
         normalize_observations = dqn_config["normalize_observations"]
         if normalize_observations:
-            normalize_globals = self._environment.num_global_features is not None
             environment_normalizer = SwarmEnvironmentObservationNormalizer(
                 graph_environment=self._environment,
                 normalize_nodes=True,
                 normalize_edges=True,
-                normalize_globals=normalize_globals,
             )
         else:
             environment_normalizer = DummySwarmEnvironmentNormalizer()
@@ -133,6 +126,9 @@ class SwarmDQN(AbstractRLAlgorithm):
 
         scalars["buffer_size"] = self._replay_buffer.size
         scalars["exploration_rate"] = self.policy.exploration_rate
+
+        if self.policy.learning_rate_scheduler is not None:
+            scalars["learning_rate"] = self.policy.learning_rate_scheduler.get_last_lr()[0]
 
         return scalars
 
@@ -183,7 +179,7 @@ class SwarmDQN(AbstractRLAlgorithm):
             # update normalization statistics with current step
             self._environment_normalizer.update_observations(observation)
         else:
-            observation = self._environment.last_observation
+            observation = self._environment.last_observation  # or maybe auto-reset?
 
         if action_sampling_strategy == "random":
             actions = self._get_random_actions()
@@ -239,7 +235,7 @@ class SwarmDQN(AbstractRLAlgorithm):
             progress_bar()
 
     def training_step(self) -> ValueDict:
-        # Switch to train mode
+        # Switch to train mode (this affects batch norm / dropout)
         self.set_training_mode(True)
 
         losses = []
@@ -265,6 +261,10 @@ class SwarmDQN(AbstractRLAlgorithm):
             agents_per_batch.append(replay_data.actions.shape[0])
 
             self.policy.update_target_q_network()
+
+        # Update learning rate according to schedule
+        if self.policy.learning_rate_scheduler is not None:
+            self.policy.learning_rate_scheduler.step()
 
         return {"loss": np.mean(losses),
 
@@ -334,9 +334,10 @@ class SwarmDQN(AbstractRLAlgorithm):
 
     @property
     def policy_class(self):
-        use_mixed_reward = self.algorithm_config.get("use_mixed_reward", False)
-        if use_mixed_reward:
-            from src.algorithms.rl.architectures.swarm_dqn_mixed_reward_policy import SwarmDQNMixedRewardPolicy
+        mixed_return_config = self.algorithm_config.get("mixed_return", {})
+        use_mixed_return = mixed_return_config.get("global_weight", 0) > 0
+        if use_mixed_return:
+            from src.algorithms.rl.architectures.swarm_dqn_mixed_return_policy import SwarmDQNMixedRewardPolicy
             return SwarmDQNMixedRewardPolicy
         else:
             return SwarmDQNPolicy

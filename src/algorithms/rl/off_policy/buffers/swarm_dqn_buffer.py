@@ -8,7 +8,7 @@ import torch
 
 from src.algorithms.rl.off_policy.buffers.abstract_off_policy_buffer import AbstractOffPolicyBuffer, \
     AbstractBufferSamples
-from src.modules.mpn.common.hmpn_util import make_batch
+from modules.hmpn.common.hmpn_util import make_batch
 from util.types import *
 
 
@@ -26,7 +26,8 @@ DQNTransition = Tuple[
 
 
 class SwarmDQNBuffer(AbstractOffPolicyBuffer):
-    def __init__(self, buffer_size: int, device: torch.device, scalar_reward_and_done: bool = False):
+    def __init__(self, buffer_size: int, device: torch.device,
+                 scalar_reward_and_done: bool = False):
         super().__init__(buffer_size, device)
         # if scalar_reward_and_done is True, then the reward and done are scalars and not arrays.
         # This is the case for VDGN.

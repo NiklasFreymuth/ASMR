@@ -1,0 +1,11 @@
+# Register your environment here under a unique name.
+# example:
+#
+# my_environment_name:  # Unique name. Can be used in task configs as value for the "environment" property.
+#   module: src.swarm_environments...MyClassName  # MyClassName.py must contain a class "MyClassName"!
+
+mesh_refinement:
+  module: src.swarm_environments.mesh.mesh_refinement.mesh_refinement
+
+deep_rl_mesh_refinement:
+  module: src.swarm_environments.mesh.mesh_refinement.sweep.sweep_mesh_refinement

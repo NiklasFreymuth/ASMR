@@ -49,7 +49,7 @@ def load_dict(path: str) -> dict:
 
 def undo_numpy_conversions(dictionary: dict) -> dict:
     """
-    Numpy does some interesting conversions when you save dictionary objects. This method undoes them.
+    Numpy does some weird conversions when you save dictionary objects. This method undoes them.
     Args:
         dictionary: The dictionary to un-convert
 

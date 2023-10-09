@@ -1,15 +1,15 @@
-import torch
 import numpy as np
+import torch
+from stable_baselines3.common.utils import polyak_update
+from modules.swarm_environments.abstract_swarm_environment import AbstractSwarmEnvironment
 from torch import optim
 from torch.nn import functional as F
 from torch_scatter import scatter_sum, scatter_mean
-from stable_baselines3.common.utils import polyak_update
 
+from src.algorithms.rl.architectures.dqn_modules.discrete_graph_q_net import DiscreteGraphQNet
 from src.algorithms.rl.off_policy.buffers.swarm_dqn_buffer import DQNBufferSamples
 from src.algorithms.rl.off_policy.buffers.swarm_dqn_prioritized_buffer import DQNPrioritizedBufferSamples
 from src.modules.abstract_architecture import AbstractArchitecture
-from src.algorithms.rl.architectures.dqn_modules.discrete_graph_q_net import DiscreteGraphQNet
-from src.environments.abstract_swarm_environment import AbstractSwarmEnvironment
 from util.types import *
 
 
@@ -58,8 +58,8 @@ class SwarmDQNPolicy(AbstractArchitecture):
         network_config = algorithm_config.get("network")
         dqn_config: ConfigDict = algorithm_config.get("dqn")
         self._environment = environment
-        self.discount_factor: float = algorithm_config.get("discount_factor")
-        self._step: int = 0
+        self.discount_factor = algorithm_config.get("discount_factor")
+        self._step = 0
 
         # exploration
         self.exploration_method = dqn_config.get("exploration_method")
@@ -79,11 +79,12 @@ class SwarmDQNPolicy(AbstractArchitecture):
 
         self._initialize_q_network(dqn_config, environment, network_config)
 
-        self.max_grad_norm = dqn_config.get("max_grad_norm", 0.5)
+        self.max_grad_norm = network_config.get("training").get("max_grad_norm", 0.5)
         self._agent_node_type = environment.agent_node_type
         self._action_dimension = environment.action_dimension
 
         self._initialize_optimizer_and_scheduler(training_config=network_config.get("training"))
+
         self.to(self._gpu_device)
 
     def _initialize_q_network(self, dqn_config, environment, network_config):
@@ -253,7 +254,8 @@ class SwarmDQNPolicy(AbstractArchitecture):
 
             projected_q_values = project_q_values_to_previous_step(next_q_values=next_q_values,
                                                                    agent_mappings=agent_mappings,
-                                                                   aggregation_method=self._project_to_previous_step_aggregation)
+                                                                   aggregation_method=self._project_to_previous_step_aggregation
+                                                                   )
 
             target_q_values = rewards + (1 - dones) * self.discount_factor * projected_q_values
 
@@ -287,7 +289,6 @@ class SwarmDQNPolicy(AbstractArchitecture):
         # Clip gradient norm
         torch.nn.utils.clip_grad_norm_(self.parameters(), self.max_grad_norm)
         self._optimizer.step()
-
 
     @property
     def optimizers(self) -> List[optim.Optimizer]:

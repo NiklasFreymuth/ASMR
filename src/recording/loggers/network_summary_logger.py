@@ -20,5 +20,5 @@ class NetworkSummaryLogger(AbstractLogger):
             self._writer.info(f"Total parameters: {total_network_parameters}")
             self._writer.info(f"Trainable parameters: {trainable_parameters}")
 
-    def finalize(self) -> None:
+    def finalize(self, final_values: ValueDict) -> None:
         pass

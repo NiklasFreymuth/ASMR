@@ -2,62 +2,62 @@ import numpy as np
 import torch
 
 from src.algorithms.get_algorithm import get_algorithm
-from src.environments.get_environment import get_environment
 from src.recording.recorder import Recorder
 from util.types import *
 
 
-def get_task_config(num_refinements: int = 6) -> ConfigDict:
+def get_environment_config(num_refinements: int = 6) -> ConfigDict:
     """
     The task config defines the task/environment. More specifically, it defines the mesh refinement environment,
     including the FEM parameters and the mesh refinement parameters such as the element penalty and the number of
     refinements.
     """
-    task_config = {"environment": "mesh_refinement",
-                   "mesh_refinement":
-                       {"num_timesteps": num_refinements,
-                        "element_penalty": 1.0e-2,
-                        "element_limit_penalty": 1000,
-                        "refinement_strategy": "discrete",  # "discrete" or "argmax" for the argmax baseline
-                        "reward_type": "spatial_area",  # use our area scaling
+    environment_config = {"environment": "mesh_refinement",
+                          "mesh_refinement":
+                              {"num_timesteps": num_refinements,
+                               "element_penalty":
+                                   {"value": 3.0e-2},
+                               "element_limit_penalty": 1000,
+                               "maximum_elements": 20000,
+                               "refinement_strategy": "absolute_discrete",  # "discrete" or "single_agent"
+                               "reward_type": "spatial_area",  # use our area scaling
 
-                        # define the (class of) PDE(s) to solve with the FEM
-                        "fem":
-                            {"pde_type": "poisson",
-                             "num_pdes": 100,  # use 100 PDE for the training buffer
-                             "domain":
-                                 {"fixed_domain": False,
-                                  "domain_type": "lshape",
-                                  "num_integration_refinements": num_refinements,
-                                  # how many times to refine the initial mesh to get the reference mesh
-                                  },
-                             "poisson":
-                                 {"fixed_load": False,
-                                  "num_components": 3,  # use a Gaussian mixture of 3 components
-                                  "element_features":  # poisson-specific element features
-                                      {"load_function": True, }
-                                  }
+                               # define the (class of) PDE(s) to solve with the FEM
+                               "fem":
+                                   {"pde_type": "poisson",
+                                    "num_pdes": 100,  # use 100 PDE for the training buffer
+                                    "domain":
+                                        {"fixed_domain": False,
+                                         "domain_type": "lshape",
+                                         "num_integration_refinements": num_refinements,
+                                         # how many times to refine the initial mesh to get the reference mesh
+                                         },
+                                    "poisson":
+                                        {"fixed_load": False,
+                                         "num_components": 3,  # use a Gaussian mixture of 3 components
+                                         "element_features":  # poisson-specific element features
+                                             {"load_function": True, }
+                                         }
 
-                             },
+                                    },
 
-                        # features to use for the MPN
-                        "element_features":
-                            {"x_position": False,
-                             "y_position": False,
-                             "area": True,
-                             "solution_mean": True,
-                             "solution_std": True,
-                             "distance_to_boundary": True
-                             },
-                        "include_globals": True,
-                        "global_features":
-                            {"num_vertices": True,
-                             "num_elements": True,
-                             "timestep": True
-                             },
-                        },
-                   }
-    return task_config
+                               # features to use for the MPN
+                               "element_features":
+                                   {"x_position": False,
+                                    "y_position": False,
+                                    "area": True,
+                                    "solution_mean": True,
+                                    "solution_std": True,
+                                    },
+                               "edge_features":
+                                   {
+                                       "distance_vector": False,
+                                       "euclidean_distance": True,
+                                   }
+                               },
+
+                          }
+    return environment_config
 
 
 def get_algorithm_config() -> ConfigDict:
@@ -80,16 +80,27 @@ def get_algorithm_config() -> ConfigDict:
                              "value_function_scope": "spatial"
                              },
                         "network":
-                            {"latent_dimension": 32,
+                            {"latent_dimension": 64,
                              "base":
-                                 {"stack":
+                                 {"scatter_reduce": "mean",
+                                  "stack":
                                       {"use_layer_norm": True,
-                                       "num_blocks": 2,
+                                       "num_steps": 2,
                                        "use_residual_connections": True,
                                        "mlp":
                                            {"activation_function": "leakyrelu",
                                             "num_layers": 2, }
                                        }
+                                  },
+                             "actor":
+                                 {"mlp":
+                                      {"activation_function": "tanh",
+                                       "num_layers": 2, }
+                                  },
+                             "critic":
+                                 {"mlp":
+                                      {"activation_function": "tanh",
+                                       "num_layers": 2, }
                                   },
                              "training":
                                  {"learning_rate": 3.0e-4},
@@ -137,7 +148,7 @@ def get_config(num_refinements: int = 6):
     Returns:
 
     """
-    config = {"task": get_task_config(num_refinements=num_refinements),
+    config = {"environment": get_environment_config(num_refinements=num_refinements),
               "algorithm": get_algorithm_config(),
               "recording": get_recording_config(),
               "_recording_structure": get_recording_structure()}
@@ -169,11 +180,8 @@ def main(iterations: int = 100, num_refinements: int = 6, seed: int = 123):
     np.random.seed(seed=seed)
     torch.manual_seed(seed=seed)
 
-    # initialize the actual algorithm and recording
-    environment, evaluation_environments = get_environment(config=config, seed=seed)
+    # initialize the actual algorithm, which includes the environment, and the recording
     algorithm = get_algorithm(config=config,
-                              environment=environment,
-                              evaluation_environments=evaluation_environments,
                               seed=seed)
     recorder = Recorder(config=config, algorithm=algorithm)
 

@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+from modules.hmpn.common.hmpn_util import make_batch
 from torch_scatter import scatter_mean
 
 from src.algorithms.rl.abstract_rl_algorithm import AbstractRLAlgorithm
@@ -8,31 +9,23 @@ from src.algorithms.rl.normalizers.abstract_environment_normalizer import Abstra
 from src.algorithms.rl.normalizers.dummy_swarm_environment_normalizer import DummySwarmEnvironmentNormalizer
 from src.algorithms.rl.normalizers.on_policy.swarm_environment_ppo_normalizer import SwarmEnvironmentPPONormalizer
 from src.algorithms.rl.on_policy.buffers.abstract_multi_agent_on_policy_buffer import AbstractMultiAgentOnPolicyBuffer
-from src.algorithms.rl.on_policy.buffers.mixed_reward_on_policy_buffer import MixedRewardOnPolicyBuffer
+from src.algorithms.rl.on_policy.buffers.mixed_return_on_policy_buffer import MixedRewardOnPolicyBuffer
 from src.algorithms.rl.on_policy.buffers.get_on_policy_buffer import get_on_policy_buffer
-from src.algorithms.rl.on_policy.util.ppo_util import get_policy_loss, get_value_loss
-from src.environments.abstract_swarm_environment import AbstractSwarmEnvironment
-from src.modules.mpn.common.hmpn_util import make_batch
+from src.algorithms.rl.on_policy.util.ppo_util import get_entropy_loss, get_policy_loss, get_value_loss
 from util import keys
 from util.function import prefix_keys, add_to_dictionary, safe_mean
 from util.progress_bar import ProgressBar
-from util.types import *
 from util.torch_util.torch_util import detach
+from util.types import *
 
 
 class SwarmPPO(AbstractRLAlgorithm):
     """
-    Graph-Based PPO implementation compatible with our GraphEnvironments.
+    Graph-Based Soft Actor Critic implementation compatible with our GraphEnvironments.
     """
 
-    def __init__(self, config: ConfigDict,
-                 environment: Optional[AbstractSwarmEnvironment] = None,
-                 evaluation_environments: Optional[List[AbstractSwarmEnvironment]] = None,
-                 seed: Optional[int] = None) -> None:
-        super().__init__(config=config,
-                         environment=environment,
-                         evaluation_environments=evaluation_environments,
-                         seed=seed)
+    def __init__(self, config: ConfigDict, seed: Optional[int] = None) -> None:
+        super().__init__(config=config, seed=seed)
 
         # PPO specific config parts
         ppo_config: ConfigDict = self.algorithm_config.get("ppo")
@@ -40,11 +33,13 @@ class SwarmPPO(AbstractRLAlgorithm):
         self._num_rollout_steps: int = ppo_config.get("num_rollout_steps")
         self._clip_range: float = ppo_config.get("clip_range", 0.2)
         self._max_grad_norm: float = ppo_config.get("max_grad_norm", 0.5)
+        self._entropy_coefficient: float = ppo_config.get("entropy_coefficient", 0.0)
         self._value_function_coefficient: float = ppo_config.get("value_function_coefficient", 0.5)
         self._value_function_clip_range: float = ppo_config.get("value_function_clip_range", 0.2)
         self._value_function_scope: str = ppo_config.get("value_function_scope")
-        assert self._value_function_scope in ["graph", "spatial"], \
-            f"Need to have a node-wise or graph-wise value function, given '{self._value_function_scope}' instead"
+        assert self._value_function_scope in ["graph", "vdn", "agent", "spatial"], \
+            (f"Value function must be any of 'graph', 'vdn', 'agent', 'spatial',"
+             f" given '{self._value_function_scope}' instead")
 
         # optionally load the architecture (actor, critic, optimizers) and potentially the normalizer from a checkpoint
         if self.algorithm_config.get("checkpoint", {}).get("experiment_name") is not None:
@@ -67,13 +62,11 @@ class SwarmPPO(AbstractRLAlgorithm):
         normalize_rewards = ppo_config.get("normalize_rewards")
         normalize_observations = ppo_config.get("normalize_observations")
         if normalize_rewards or normalize_observations:
-            normalize_globals = normalize_observations and self._environment.num_global_features is not None
             environment_normalizer = SwarmEnvironmentPPONormalizer(graph_environment=self._environment,
                                                                    discount_factor=self._discount_factor,
                                                                    normalize_rewards=normalize_rewards,
                                                                    normalize_nodes=normalize_observations,
-                                                                   normalize_edges=normalize_observations,
-                                                                   normalize_globals=normalize_globals)
+                                                                   normalize_edges=normalize_observations)
         else:
             environment_normalizer = DummySwarmEnvironmentNormalizer()
         return environment_normalizer
@@ -92,7 +85,7 @@ class SwarmPPO(AbstractRLAlgorithm):
                                  discount_factor=self._discount_factor,
                                  value_function_scope=self._value_function_scope,
                                  device=buffer_device,
-                                 use_mixed_reward=self.algorithm_config.get("use_mixed_reward", False),
+                                 mixed_return_config=self.algorithm_config.get("mixed_return", {}),
                                  )
         return rollout_buffer
 
@@ -181,7 +174,7 @@ class SwarmPPO(AbstractRLAlgorithm):
         next_observation, reward, done, additional_information = self._environment.step(action=detach(actions))
         if self._value_function_scope == "spatial":
             # the environment returns one reward per agent
-            from src.environments.mesh.mesh_refinement.mesh_refinement import MeshRefinement
+            from modules.swarm_environments import MeshRefinement
             assert isinstance(self._environment, MeshRefinement)
             rollout_buffer_information = {keys.AGENT_MAPPING: self._environment.agent_mapping}
             if isinstance(self.rollout_buffer, MixedRewardOnPolicyBuffer):
@@ -193,7 +186,9 @@ class SwarmPPO(AbstractRLAlgorithm):
             # this sum should happen *before* the reward normalization, since the normalization happens per reward
         next_observation, reward = self._environment_normalizer.update_and_normalize(observations=next_observation,
                                                                                      reward=reward)
-
+        if done and self._ignore_truncated_dones and additional_information.get(keys.IS_TRUNCATED, False):
+            reward = self._bootstrap_terminal_reward(next_observation, reward)
+        # done flag is only set due to environment timeout, but should be ignored
         self.rollout_buffer.add(observation=current_observation,
                                 actions=actions,
                                 reward=reward,
@@ -215,6 +210,29 @@ class SwarmPPO(AbstractRLAlgorithm):
             _, last_value, _ = self._policy(make_batch(last_observation))
             last_value = last_value.squeeze(dim=-1).flatten()
         return last_value
+
+    def _bootstrap_terminal_reward(self, next_observation: InputBatch, reward: torch.Tensor) -> torch.Tensor:
+        """
+        Bootstraps the reward for the last step of the rollout, if the environment is done due to a terminal state.
+        time limit dones, i.e., environment terminations that are due to a time limit rather than
+        policy failure are bootstrapped for the advantage estimate. Rather than "stopping" the advantage
+        at this step, the reward is bootstraped to include the value function estimate of the current
+        observation as an estimate of how the episode *should/could* have continued.
+        Args:
+            next_observation: The observation after the terminal state
+            reward: The reward for the terminal state
+
+        Returns: The bootstrapped reward
+
+        """
+        with torch.no_grad():
+            _, terminal_value, _ = self._policy(observations=make_batch(next_observation), deterministic=True)
+        if self._value_function_scope == "agent":
+            # aggregate over evaluations per node to get one evaluation per graph.
+            # Here, we only have one graph, so we can simply take the mean
+            terminal_value = terminal_value.mean(dim=0)
+        reward = reward + self._discount_factor * terminal_value
+        return reward
 
     def training_step(self) -> ValueDict:
         """
@@ -240,6 +258,10 @@ class SwarmPPO(AbstractRLAlgorithm):
             progress_bar(total_loss=total_loss.item())
 
         # add more metrics
+        if self.learning_rate_scheduler is not None:  # update and log learning rate
+            self.learning_rate_scheduler.step()
+            train_scalars["learning_rate"] = self.learning_rate_scheduler.get_last_lr()[0]
+
         new_policy_parameters = torch.cat([param.view(-1) for param in self._policy.parameters()])
         differences = torch.abs(old_policy_parameters - new_policy_parameters)
         train_scalars["mean_network_weight_difference"] = np.mean(detach(differences))
@@ -247,6 +269,9 @@ class SwarmPPO(AbstractRLAlgorithm):
 
         # calculate explained variance for the full buffer rather than individual batches. Done in self.rollout_buffer
         train_scalars["value_explained_variance"] = self.rollout_buffer.explained_variance
+
+        if isinstance(self.rollout_buffer, MixedRewardOnPolicyBuffer):
+            train_scalars["global_weight"] = self.rollout_buffer.global_weight
         return train_scalars
 
     def _train_batch(self, rollout_data) -> Tuple[torch.Tensor, ValueDict]:
@@ -271,19 +296,24 @@ class SwarmPPO(AbstractRLAlgorithm):
         values = values.squeeze(dim=-1)  # flattened list of one value, either per node or per graph
         # ratio between old and new policy, should be one at the first iteration
         ratio = torch.exp(log_probabilities - old_log_probabilities)
-        if self._value_function_scope == "graph":
+        if self._value_function_scope in ["graph", "vdn"] and not len(ratio) == self._batch_size:
             # if the value function acts on full graphs, we need to aggregate the log probabilities accordingly
-            batch = observations.batch
+            if hasattr(observations, "x"):  # homogeneous graph
+                batch = observations.batch
+            else:
+                agent_node_index = observations.node_types.index(self._environment.agent_node_type)
+                batch = observations.node_stores[agent_node_index].batch
             ratio = scatter_mean(ratio, batch, dim=0)
-            # use scatter_mean here, as we want the probability ratios of the graph to be the normalized sum
-            # of the ratios of its agents
+            # use scatter_mean here for both graph and vdn, as we want the probability ratios of the graph to be the
+            # normalized sum of the ratios of its agents
         # calculate losses
         policy_loss = get_policy_loss(advantages=advantages, ratio=ratio,
                                       clip_range=self._clip_range)
         value_loss = self._value_function_coefficient * get_value_loss(returns=returns,
                                                                        values=values, old_values=old_values,
                                                                        clip_range=self._value_function_clip_range)
-        total_loss = policy_loss + value_loss
+        entropy_loss = self._entropy_coefficient * get_entropy_loss(entropy, log_probabilities)
+        total_loss = policy_loss + value_loss + entropy_loss
         # Optimization step
         self._apply_loss(total_loss)
         # Logging
@@ -292,13 +322,14 @@ class SwarmPPO(AbstractRLAlgorithm):
             approx_kl_div = detach(torch.mean((torch.exp(log_ratio) - 1) - log_ratio))
         train_step_scalars = {
             "total_loss": total_loss.item(),
+            "entropy_loss": entropy_loss.item(),
             "value_function_loss": value_loss.item(),
             "mean_value_function": values.mean().item(),
             "policy_loss": policy_loss.item(),
             "policy_kl": approx_kl_div,
             "policy_clip_fraction": torch.mean((torch.abs(ratio - 1) > self._clip_range).float()).item()}
         if self._policy.log_std is not None:
-            train_step_scalars["policy_std"] = self._policy.log_std.mean().item()
+            train_step_scalars["log_policy_std"] = self._policy.log_std.mean().item()
         return total_loss, train_step_scalars
 
     def _apply_loss(self, total_loss):
@@ -341,6 +372,10 @@ class SwarmPPO(AbstractRLAlgorithm):
     def policy(self) -> SwarmPPOActorCritic:
         self._policy: SwarmPPOActorCritic
         return self._policy
+
+    @property
+    def learning_rate_scheduler(self) -> Optional:
+        return self._policy.learning_rate_scheduler
 
     @property
     def environment_normalizer(self) -> AbstractEnvironmentNormalizer:

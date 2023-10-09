@@ -4,53 +4,47 @@ import numpy as np
 import plotly.graph_objects as go
 import torch
 from stable_baselines3.common.utils import safe_mean
+from modules.swarm_environments import get_environments, AbstractSwarmEnvironment
 
 import util.keys as Keys
 from src.algorithms.abstract_iterative_algorithm import AbstractIterativeAlgorithm
 from src.algorithms.rl.normalizers.abstract_environment_normalizer import AbstractEnvironmentNormalizer
-from src.environments.abstract_swarm_environment import AbstractSwarmEnvironment
-from src.environments.get_environment import get_environment
+from src.algorithms.rl.evaluation.rl_algorithm_evaluator import RLAlgorithmEvaluator
 from src.modules.abstract_architecture import AbstractArchitecture
-from util.function import prefix_keys, add_to_dictionary
+from util import keys
+from util.function import prefix_keys, add_to_dictionary, get_from_nested_dict
 from util.save_and_load.swarm_rl_checkpoint import SwarmRLCheckpoint
 from util.torch_util.torch_util import detach
 from util.types import *
 
 
 class AbstractRLAlgorithm(AbstractIterativeAlgorithm, abc.ABC):
-    def __init__(self, config: ConfigDict,
-                 environment: Optional[AbstractSwarmEnvironment] = None,
-                 evaluation_environments: Optional[List[AbstractSwarmEnvironment]] = None,
-                 seed: Optional[int] = None):
+    def __init__(self, config: ConfigDict, seed: Optional[int] = None):
         """
         Initializes a framework for a Reinforcement Learning algorithm. This includes a train and an evaluation
         environment, as well as utility for recording the training progress over time.
         Args:
             config: A (potentially nested) dictionary containing the "params" section of the section in the .yaml file
                 used by cw2 for the current run.
-            environment: The environment to use for training. If None, a new environment will be created based on the
-                config.
-            evaluation_environments: The environments to use for evaluation. If None, new environments will be created
-                based on the config.
-            seed: The seed to use for the random number generator.
         """
         super().__init__(config=config)
-
-        if environment is None or evaluation_environments is None or len(evaluation_environments) == 0:
-            # get environment and evaluation environments if not provided, and potentially overwrite them
-            _environment, _evaluation_environments = get_environment(config=config, seed=seed)
-            if environment is None:
-                environment = _environment
-            if evaluation_environments is None or len(evaluation_environments) == 0:
-                evaluation_environments = _evaluation_environments
-        self._environment = environment
-        self._evaluation_environments = evaluation_environments
-
         self._algorithm_config = config.get("algorithm")
         self._verbose: bool = self.algorithm_config.get("verbose", False)
         self._network_config: ConfigDict = self.algorithm_config.get("network")
         self._batch_size: int = self.algorithm_config.get("batch_size")
         self._discount_factor: float = self.algorithm_config.get("discount_factor")
+        self._ignore_truncated_dones = self.algorithm_config.get("ignore_truncated_dones")
+
+        # Specifies the number of evaluation episodes used to reduce noise in the metrics (default is 1)
+        self._num_evaluation_episodes = self.algorithm_config.get("num_evaluation_episodes", 1)
+
+        # whether to ignore done flags that result from a timeout of the environment rather than some failure state.
+        self._environment, self._evaluation_environments, self._final_environments = get_environments(
+            environment_config=config.get("environment"),
+            seed=seed)
+
+        # whether to record videos
+        self._record_videos: bool = get_from_nested_dict(config, ['recording', 'record_videos'], default_return=False)
 
         if self.algorithm_config.get("use_gpu"):
             self.device: torch.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -75,7 +69,7 @@ class AbstractRLAlgorithm(AbstractIterativeAlgorithm, abc.ABC):
         # filter scalars from dict
         value_dict = {}
         for key, value in full_values.items():
-            if key in [Keys.FIGURES]:  # may either be a single figure, or a list of figures
+            if key in [Keys.FIGURES, Keys.VIDEO_ARRAYS]:  # may either be a single figure, or a list of figures
                 value_dict[key] = value
             elif isinstance(value, list):
                 if len(value) > 0:  # list is not empty
@@ -98,7 +92,7 @@ class AbstractRLAlgorithm(AbstractIterativeAlgorithm, abc.ABC):
         """
         self.set_training_mode(False)
 
-        evaluation_dict = {Keys.FIGURES: []}
+        evaluation_dict = {Keys.FIGURES: [], Keys.VIDEO_ARRAYS: []}
         for environment_position, environment in enumerate(self._evaluation_environments):
             environment_prefix = f"env{environment_position}"
 
@@ -109,6 +103,8 @@ class AbstractRLAlgorithm(AbstractIterativeAlgorithm, abc.ABC):
             current_environment_dict = prefix_keys(dictionary=current_environment_dict, prefix=environment_prefix)
             evaluation_dict = evaluation_dict | current_environment_dict
             evaluation_dict[Keys.FIGURES].append(current_evaluations.get(Keys.FIGURES))
+            if self._record_videos:
+                evaluation_dict[Keys.VIDEO_ARRAYS].append(current_evaluations.get(Keys.VIDEO_ARRAYS))
 
         return evaluation_dict
 
@@ -123,45 +119,61 @@ class AbstractRLAlgorithm(AbstractIterativeAlgorithm, abc.ABC):
         """
 
         mean_infos_of_environments, last_infos_of_environments = [], []
+        render_traces, rgb_video_array, additional_render_information = [], [], {}
 
-        # reset environment and prepare loop over rollout
-        observation = environment.reset()
-        done = False
-        reward_info = {}
+        first_episode = True
 
-        # Render the environment only in the first episode
-        render_traces, additional_render_information = environment.render(mode="human")
+        # Loop over multiple evaluation episodes to reduce the noise in the recorded metrics
+        for _ in range(self._num_evaluation_episodes):
+            # reset environment and prepare loop over rollout
+            observation = environment.reset()
+            done = False
+            reward_info = {}
 
-        # loop over rollout
-        previous_values = None
+            # Render the environment & record video only in the first episode
+            if first_episode:
+                render_traces, additional_render_information = environment.render(mode="human")
+                if self._record_videos:
+                    rgb_video_array = [environment.render(mode="rgb_array")]
+                else:
+                    rgb_video_array = None
 
-        # compute a delta for the value to measure how the critic "progresses" throughout the episode
-        while not done:
-            actions, values = self.policy_step(observation=observation)
-            actions = detach(actions)
-            values = detach(values)
-            if previous_values is None:
+            # loop over rollout
+            previous_values = None
+
+            # compute a delta for the value to measure how the critic "progresses" throughout the episode
+            while not done:
+                actions, values = self.policy_step(observation=observation)
+                actions = detach(actions)
+                values = detach(values)
+                if previous_values is None:
+                    previous_values = values
+
+                observation, reward, done, additional_information = environment.step(action=actions)
+
+                # Render the environment & record video only in the first episode
+                if first_episode:
+                    current_traces, current_additional_render_information = environment.render(mode="human")
+                    render_traces.extend(current_traces)
+                    additional_render_information |= current_additional_render_information
+                    if self._record_videos:
+                        rgb_video_array.append(environment.render(mode="rgb_array"))
+
+                reward_info = add_to_dictionary(reward_info, new_scalars={key: np.sum(value)
+                                                                          for key, value
+                                                                          in additional_information.items()})
+                reward_info = add_to_dictionary(reward_info, {"critic_values": np.mean(values)})
+                reward_info = add_to_dictionary(reward_info, {"delta_critic_values": np.mean(values) -
+                                                                                     np.mean(previous_values)})
                 previous_values = values
 
-            observation, reward, done, additional_information = environment.step(action=actions)
+            first_episode = False
 
-            current_traces, current_additional_render_information = environment.render(mode="human")
-            render_traces.extend(current_traces)
-            additional_render_information |= current_additional_render_information
-
-            reward_info = add_to_dictionary(reward_info, new_scalars={key: np.sum(value)
-                                                                      for key, value
-                                                                      in additional_information.items()})
-            reward_info = add_to_dictionary(reward_info, {"critic_values": np.mean(values)})
-            reward_info = add_to_dictionary(reward_info, {"delta_critic_values": np.mean(values) -
-                                                                                 np.mean(previous_values)})
-            previous_values = values
-
-        # Add one metrics dictionary per evaluation episode to a list of dictionaries (for mean & last infos)
-        mean_infos_of_environments.append(
-            prefix_keys(dictionary={key: safe_mean(value) for key, value in reward_info.items()}, prefix="mean"))
-        last_infos_of_environments.append(
-            prefix_keys(dictionary={key: float(value[-1]) for key, value in reward_info.items()}, prefix="last"))
+            # Add one metrics dictionary per evaluation episode to a list of dictionaries (for mean & last infos)
+            mean_infos_of_environments.append(
+                prefix_keys(dictionary={key: safe_mean(value) for key, value in reward_info.items()}, prefix="mean"))
+            last_infos_of_environments.append(
+                prefix_keys(dictionary={key: float(value[-1]) for key, value in reward_info.items()}, prefix="last"))
 
         def get_mean_dict(dict_list):
             # Nested method to compute the average of dictionaries for each key and given a list of dictionaries.
@@ -176,6 +188,11 @@ class AbstractRLAlgorithm(AbstractIterativeAlgorithm, abc.ABC):
         # render figure from previously provided traces and additional information such as the layout
         figure = go.Figure(data=render_traces, **additional_render_information)
         evaluation_dict = {"environment_dict": environment_dict, Keys.FIGURES: figure}
+
+        if self._record_videos:
+            rgb_video_array = np.array(rgb_video_array).transpose(0, 3, 1, 2)
+            # transpose to have (time x channel x height x width)
+            evaluation_dict[Keys.VIDEO_ARRAYS] = rgb_video_array
 
         return evaluation_dict
 
@@ -346,3 +363,16 @@ class AbstractRLAlgorithm(AbstractIterativeAlgorithm, abc.ABC):
             # the "/" separator is interpreted as a subdirectory by the wandb logger, leading to a cleaner separation
             # of plots
         return additional_plots
+
+    def get_final_values(self) -> ValueDict:
+        """
+        Returns a dictionary of values that should be logged at the end of the training.
+        Returns:
+
+        """
+        self.set_training_mode(False)
+        evaluator = RLAlgorithmEvaluator(config=self.config,
+                                         policy_step_function=self.policy_step,
+                                         environments=self._final_environments)
+        final_values = {keys.TABLES: evaluator.get_tables()}
+        return final_values

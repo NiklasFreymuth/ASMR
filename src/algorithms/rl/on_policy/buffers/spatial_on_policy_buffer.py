@@ -7,11 +7,32 @@ from util import keys as k
 from util.types import *
 
 
+def _project_to_previous_step(values: List[torch.Tensor], dones: torch.Tensor,
+                              agent_mappings: List[torch.Tensor]) -> List[torch.Tensor]:
+    """
+    Projects values to previous agents if the number of agents mismatches
+
+    Args:
+        values: values for each step. List of [#steps, #agents(step)]
+        dones: List of dones. 1 if the env is done at that step, 0 else
+
+    Returns: Projected values. List of [#steps, #agents(step-1)], i.e., a projection to the previous step
+
+    """
+    projected_values = []
+    for step in range(len(values)):
+        if dones[step]:
+            projected_value = values[step]
+        else:
+            projected_value = scatter_sum(values[step], index=agent_mappings[step],
+                                          dim=0)
+        projected_values.append(projected_value)
+    return projected_values
+
+
 class SpatialOnPolicyBuffer(AbstractMultiAgentOnPolicyBuffer):
     """
-    Multi Agent On-Policy Rollout Buffer acting on values/advantages/returns per *node*. Node that this assumes
-    that the agents are persistent within individual environment rollouts, i.e., no agents are added or removed within
-    a single rollout.
+    Multi Agent On-Policy Rollout Buffer acting on values/advantages/returns per *node*.
     """
 
     def __init__(self, buffer_size: int, gae_lambda: float, discount_factor: float,
@@ -125,7 +146,8 @@ class SpatialOnPolicyBuffer(AbstractMultiAgentOnPolicyBuffer):
         # projected difference in values between r+V(s_{t+1}) and V(s)
         deltas = []
         next_values = self.values[1:] + [last_value]
-        projected_next_values = self._project_to_previous_step(next_values, self.dones)
+        projected_next_values = _project_to_previous_step(values=next_values, dones=self.dones,
+                                                          agent_mappings=self._agent_mappings)
         for step in range(self.buffer_size):
             if self.dones[step]:
                 delta = self.rewards[step] - self.values[step]
@@ -135,6 +157,7 @@ class SpatialOnPolicyBuffer(AbstractMultiAgentOnPolicyBuffer):
         # a vectorized version of this would be
         # deltas = self.rewards + self.discount_factor * next_values * not_dones - self.values
         # note that this is not applicable due to different shapes/numbers of agents over different rollouts
+
         # generalized advantage estimate
         last_gae = torch.zeros(self._agent_mappings[-1].shape, device=self.device)
         for step in reversed(range(self.buffer_size)):
@@ -155,27 +178,6 @@ class SpatialOnPolicyBuffer(AbstractMultiAgentOnPolicyBuffer):
         # calculate returns as advantage plus value for each step
         returns = [advantage + value for advantage, value in zip(advantages, self.values)]
         return advantages, returns
-
-    def _project_to_previous_step(self, values: List[torch.Tensor], dones: torch.Tensor) -> List[torch.Tensor]:
-        """
-        Projects values to previous agents if the number of agents mismatches
-
-        Args:
-            values: values for each step. List of [#steps, #agents(step)]
-            dones: List of dones. 1 if the env is done at that step, 0 else
-
-        Returns: Projected values. List of [#steps, #agents(step-1)], i.e., a projection to the previous step
-
-        """
-        projected_values = []
-        for step in range(len(values)):
-            if dones[step]:
-                projected_value = values[step]
-            else:
-                projected_value = scatter_sum(values[step], index=self._agent_mappings[step],
-                                              dim=0)
-            projected_values.append(projected_value)
-        return projected_values
 
     @property
     def explained_variance(self) -> np.ndarray:

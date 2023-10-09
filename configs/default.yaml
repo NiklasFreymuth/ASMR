@@ -8,7 +8,7 @@
 name: "SLURM"   # MUST BE "SLURM"
 
 # Required
-partition: "single"  # input your slurm partition here
+partition: "single"
 job-name: "ASMR"    # this will be the experiments name in slurm
 
 # Required - Cluster Specific
@@ -29,8 +29,8 @@ name: "DEFAULT"   # MUST BE DEFAULT
 # Implementation default parameters
 path: "./reports/"   # location to save reports in
 repetitions: 1 # number of times one set of parameters is run
-reps_per_job: 1 # number of repetitions in each job. useful for paralellization. defaults to 1.
-reps_in_parallel: 1 # number of repetitions in each job that are executed in parallel. defaults to 1.
+reps_per_job: 1 # number of repetitions in each job. useful for paralellization. defaults to 1
+reps_in_parallel: 1 # number of repetitions in each job that are executed in parallel. defaults to 1
 
 iterations: 100  # number of iterations of the algorithm
 
@@ -39,13 +39,20 @@ params:
     numpy: default  # can be null for no random seed, "default" for numpy_seed==repetition, or an integer value
     pytorch: tied  # can be null for no random seed, "tied" for pytorch_seed==numpy_seed, or an integer value
   recording:
+    config: True  # whether to save the config of each trial as a .yaml file or not
+    defaults: True  # whether to log default values (time and memory usage, the config dictionary)
     checkpoint: True  # whether to log checkpoints of the task. This can e.g, be the networks used for the individual
       # algorithms
+    end_of_training_evaluation: True  # whether to evaluate the task at the end of training or not.
+    # Will also log  to wandb if enabled
     checkpoint_frequency: 5  # checkpointing can quickly become expensive for larger models. We also may only want
       # to do this every n iterations.
+    rollout_video: False  # whether to create a video of the rollout for the environment whenever evaluating the task
     wandb:
       enabled: False  # whether to use the wandb logger or not
       plot_frequency: 5  # If wandb is enabled, how often to log plots online. High frequencies take up a lot of space.
+      video_frequency: null  # If wandb is enabled, how often to log videos online.
+      # Note that videos are only logged if rollout_video is enabled. If null, defaults to plot_frequency.
       additional_plots: True  # whether to track additional plots with wandb or not.
       # Additional plots will either be tracked once at the start/end of training, or every plot_frequency iterations,
       # depending on the plot
@@ -54,5 +61,7 @@ params:
       task_name: null # Optional name of the task. If not set, the task name will be the experiment name.
       # only used categorizing wandb projects
       tags: null  # list of custom tags to sort/find these runs by
-      start_method: "thread"  # start method for wandb. "thread" is recommended for slurm and on most local pcs.
+      start_method: "thread"  # start method for wandb. "thread" is recommended for slurm and on your cluster.
+      # null will use the default wandb start method,
+      # which is "fork" on linux and "spawn" on windows (according to copilot)
 

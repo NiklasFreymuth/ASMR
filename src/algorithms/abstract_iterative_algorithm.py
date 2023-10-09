@@ -102,3 +102,11 @@ class AbstractIterativeAlgorithm(ABC):
 
         """
         raise NotImplementedError("AbstractIterativeAlgorithm does not implement additional_plots()")
+
+    def get_final_values(self) -> ValueDict:
+        """
+        Returns a dictionary of values that are to be stored as final values of the algorithm.
+        Returns:
+
+        """
+        raise NotImplementedError("AbstractIterativeAlgorithm does not implement get_final_values()")

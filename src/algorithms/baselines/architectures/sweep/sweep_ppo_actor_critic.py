@@ -2,7 +2,7 @@ import torch
 from stable_baselines3.common.distributions import Distribution
 
 from src.algorithms.rl.architectures.swarm_ppo_actor_critic import SwarmPPOActorCritic
-from src.environments.abstract_swarm_environment import AbstractSwarmEnvironment
+from modules.swarm_environments.abstract_swarm_environment import AbstractSwarmEnvironment
 from util.types import *
 
 
@@ -28,7 +28,7 @@ class SweepPPOActorCritic(SwarmPPOActorCritic):
         Args:
             observations:
             value_function_scope: [Optional] Scope of the value function. If None, will use self._value_function_scope.
-                Can be either "graph" or "agent"
+                May be either "graph" or "agent"
 
         Returns: A tuple
             distribution: One diagonal Gaussian distribution per *agent*
@@ -36,8 +36,13 @@ class SweepPPOActorCritic(SwarmPPOActorCritic):
             For graphs, the value is the aggregation over the values for all nodes/agents.
 
         """
-        value_node_features = self.value_base(observations)
-        policy_node_features = self.policy_base(observations)
+        if self.share_base:  # one shared base for value and policy
+            node_features = self.graph_base(observations)
+            value_node_features = node_features
+            policy_node_features = node_features
+        else:  # a base each for value and policy
+            value_node_features = self.value_base(observations)
+            policy_node_features = self.policy_base(observations)
 
         values = self.value_mlp(value_node_features)
         latent_policy_features = self.policy_mlp(policy_node_features)

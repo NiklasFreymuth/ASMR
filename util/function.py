@@ -38,6 +38,8 @@ def safe_min(arr: Union[np.ndarray, list]) -> np.ndarray:
     return np.nan if len(arr) == 0 else np.min(arr)
 
 
+def softplus(x):
+    return np.log1p(np.exp(-np.abs(x))) + np.maximum(x, 0)
 
 
 def get_from_nested_dict(dictionary: Dict[Any, Any], list_of_keys: List[Any],
@@ -72,6 +74,35 @@ def wrapped_partial(func, *args, **kwargs):
     partial_func = partial(func, *args, **kwargs)
     update_wrapper(partial_func, func)
     return partial_func
+
+
+def joint_sort(main_array, *args, reverse=False) -> tuple:
+    """
+    Jointly sorts np arrays a and b with same length and possibly different dimensions
+    Args:
+        main_array: Some sortable array. Will be used to sort the other arrays by
+        reverse: Whether to flip an array or not
+        args: Additional arrays to be sorted alongside a.
+
+    Returns:
+        The sorted array a and the array b sorted in the same way
+
+    """
+    if isinstance(main_array, list):
+        main_array = np.array(main_array)
+
+    if reverse:
+        positions = np.squeeze(-main_array).argsort()
+    else:
+        positions = np.squeeze(main_array).argsort()
+
+    additional_arrays = []
+    for arr in args:
+        if isinstance(arr, list):
+            arr = np.array(arr)
+        additional_arrays.append(arr[positions])
+    return main_array[positions], *additional_arrays
+
 
 def list_of_dicts_from_dict_of_lists(nested_dict: ConfigDict) -> List[ConfigDict]:
     """
@@ -184,6 +215,26 @@ def merge_nested_dictionaries(destination: dict, source: dict) -> dict:
     return _merge_dictionaries(copy.deepcopy(destination), copy.deepcopy(source))
 
 
+def remove_key(dictionary: dict, key_to_remove: str, create_copy: bool = True) -> dict:
+    """
+    Removes a key from the given dictionary if existing. Optionally creates a copy beforehand to not affect other
+    references to the same dictionary
+    Args:
+        dictionary:
+        key_to_remove:
+        create_copy: Whether to create a copy before removing the key or not
+
+    Returns: (A potential copy of) the same dictionary, but without the key that was removed
+
+    """
+    import copy
+    if key_to_remove in dictionary.keys():
+        if create_copy:
+            dictionary = copy.deepcopy(dictionary)
+        del dictionary[key_to_remove]
+    return dictionary
+
+
 def prefix_keys(dictionary: Dict[str, Any], prefix: Union[str, List[str]], separator: str = "/") -> Dict[str, Any]:
     if isinstance(prefix, str):
         prefix = [prefix]
@@ -200,6 +251,27 @@ def add_to_dictionary(dictionary: ValueDict, new_scalars: ValueDict) -> ValueDic
         else:
             dictionary[k].append(v)
     return dictionary
+
+
+def get_scatter_reduce(name: str) -> callable:
+    if name == "mean":
+        from torch_scatter import scatter_mean
+        scatter_reduce = scatter_mean
+    elif name == "min":
+        from torch_scatter import scatter_min
+        scatter_reduce = lambda *args, **kwargs: scatter_min(*args, **kwargs)[0]
+    elif name == "max":
+        from torch_scatter import scatter_max
+        scatter_reduce = lambda *args, **kwargs: scatter_max(*args, **kwargs)[0]
+    elif name == "sum":
+        from torch_scatter import scatter_add
+        scatter_reduce = scatter_add
+    elif name == "std":
+        from torch_scatter import scatter_std
+        scatter_reduce = scatter_std
+    else:
+        raise ValueError(f"Unknown scatter reduce '{name}'")
+    return scatter_reduce
 
 
 def get_triangle_areas_from_indices(positions: np.array, triangle_indices: np.array) -> np.array:
@@ -237,6 +309,18 @@ def get_triangle_areas_from_positions(triangles: np.array) -> np.array:
                     (triangles[..., 2, 0] - triangles[..., 0, 0]) * (triangles[..., 1, 1] - triangles[..., 0, 1])
     area = np.abs(0.5 * unscaled_area)
     return area
+
+
+def remove_diagonal(arr: np.array):
+    """
+    Removes the diagonal entries of a (n x n x ...) array to leave a (n x n-1 x ...) array behind.
+    Any and all dimensions in the "..." remain the same. Used in the mean embedding observation model.
+    Args:
+        arr: Array of shape (n x n x ...)
+    Returns: Array of shape (n x n-1 x ...)
+    """
+    removed = arr[~np.eye(arr.shape[0], dtype=bool)].reshape(arr.shape[0], int(arr.shape[0]) - 1, -1)
+    return removed
 
 
 def filter_included_fields(dictionary: ConfigDict) -> List[str]:

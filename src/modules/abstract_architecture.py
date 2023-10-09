@@ -8,7 +8,8 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-from util.save_and_load.save_and_load_keys import NETWORK_KWARGS_FILE, TORCH_SAVE_FILE, ARCHITECTURE, OPTIMIZERS
+from util.save_and_load.save_and_load_keys import NETWORK_KWARGS_FILE, TORCH_SAVE_FILE, ARCHITECTURE, OPTIMIZERS, \
+    SCHEDULER
 from util.types import *
 
 
@@ -40,14 +41,26 @@ class AbstractArchitecture(nn.Module, abc.ABC):
         Args:
             training_config: Config describing the details about the training process.
             Should contain the following keys:
-                {learning_rate - The learning rate to use}
+                {optimizer - The optimizer to use. Should be a string that can be passed to get_optimizer,
+                 learning_rate - The learning rate to use,
+                 l2_norm - The l2 norm to use for regularization,
+                 lr_scheduling_rate - The rate at which to decay the learning rate. If None, no decay is used.}
 
         Returns: None
 
         """
-        self._optimizer = optim.Adam(self.parameters(),
-                                     lr=training_config.get("learning_rate")
-                                     )
+        from util.torch_util.torch_util import get_optimizer
+        optimizer = get_optimizer(training_config.get("optimizer", "adam"))
+        self._optimizer = optimizer(self.parameters(),
+                                    lr=training_config.get("learning_rate"),
+                                    weight_decay=training_config.get("l2_norm", 0.0))
+
+        lr_scheduling_rate = training_config.get("lr_scheduling_rate")
+        if lr_scheduling_rate is not None and lr_scheduling_rate < 1:
+            self._learning_rate_scheduler = optim.lr_scheduler.ExponentialLR(optimizer=self._optimizer,
+                                                                             gamma=lr_scheduling_rate)
+        else:
+            self._learning_rate_scheduler = None
 
     def to_gpu(self, tensor: InputBatch) -> InputBatch:
         if tensor is not None and self._gpu_device:
@@ -91,7 +104,7 @@ class AbstractArchitecture(nn.Module, abc.ABC):
 
         torch.save({ARCHITECTURE: self.state_dict(),
                     OPTIMIZERS: [optimizer.state_dict() for optimizer in self.optimizers],
-                    },
+                    SCHEDULER: self._learning_rate_scheduler.state_dict() if self._learning_rate_scheduler else None},
                    torch_save_path)
         return torch_save_path
 
@@ -108,11 +121,14 @@ class AbstractArchitecture(nn.Module, abc.ABC):
         if load_path.suffix != ".pt":
             load_path = load_path.with_suffix(".pt")
         checkpoint = torch.load(load_path)
-        self.eval()  # switch to eval mode
+        self.eval()  # needs to be here to have dropout etc. consistent
         for optimizer, optimizer_state_dict in zip(self.optimizers, checkpoint.get(OPTIMIZERS)):
             # load the optimizers
             optimizer.load_state_dict(optimizer_state_dict)
 
+        if self._learning_rate_scheduler is not None and checkpoint.get(SCHEDULER) is not None:
+            # load the learning rate scheduler
+            self._learning_rate_scheduler.load_state_dict(checkpoint.get(SCHEDULER))
         self.load_state_dict(checkpoint.get(ARCHITECTURE))
 
     def forward(self, tensor: torch.Tensor, **kwargs):
@@ -125,6 +141,10 @@ class AbstractArchitecture(nn.Module, abc.ABC):
     @property
     def optimizers(self) -> List[optim.Optimizer]:
         return [self._optimizer]
+
+    @property
+    def learning_rate_scheduler(self) -> Optional:
+        return self._learning_rate_scheduler
 
     @property
     def gpu_device(self) -> Optional[torch.device]:

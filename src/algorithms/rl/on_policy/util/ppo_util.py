@@ -2,6 +2,22 @@ import torch
 from torch.nn import functional as F
 
 
+def get_entropy_loss(entropy, log_probabilities):
+    """
+    Entropy total_loss to favor exploration
+    Args:
+        entropy:
+        log_probabilities:
+
+    Returns:
+
+    """
+    if entropy is None:  # Approximate entropy when no analytical form is available
+        entropy_loss = -torch.mean(-log_probabilities)
+    else:
+        entropy_loss = -torch.mean(entropy)
+    return entropy_loss
+
 
 def get_policy_loss(advantages: torch.Tensor, ratio: torch.Tensor, clip_range: float):
     """
