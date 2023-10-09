@@ -115,3 +115,16 @@ This includes additions torch code, common definitions and functions, and save a
 
 The folder `asmr_evaluations` contains the code for the evaluation of the ASMR algorithm and all baselines. It uses
 checkpoint files from the training of the algorithms and evaluates them on the separate evaluation PDE.
+
+# Citation
+
+Please cite this work as
+```
+@article{freymuth2023swarm,
+  title={Swarm Reinforcement Learning For Adaptive Mesh Refinement},
+  author={Freymuth, Niklas and Dahlinger, Philipp and W{\"u}rth, Tobias and K{\"a}rger, Luise and Neumann, Gerhard},
+  journal={Neural Information Processing Systems},
+  volume={36},
+  year={2023}
+}
+```
