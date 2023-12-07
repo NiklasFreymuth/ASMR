@@ -9,10 +9,9 @@ This framework allows for a spatial reward formulation that simplifies the credi
 We experimentally validate the effectiveness of our approach, Adaptive Swarm Mesh Refinement (ASMR), showing that it learns reliable, scalable, and efficient refinement strategies on a set of challenging problems.
 Our approach improves computation speed by more than tenfold compared to uniform refinements in complex simulations. 
 Additionally, we outperform learned baselines and achieve a refinement quality that is on par with a traditional error-based AMR strategy without expensive oracle information about the error signal. 
-Swarm Reinforcement Learning for Adaptive Mesh Refinement
 
 ## Schematic
-![Figure 1](ASMR_FigureOne.png)
+![Figure 1](Schematic.png)
 
 # Getting Started
 
