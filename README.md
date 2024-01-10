@@ -116,3 +116,9 @@ and are used for the finite element method.
 
 ### HMPN
 Building blocks for the Message Passing Network architecture.
+
+# Errata
+
+### 2024-10-01
+
+Fixed an issue that did not consider edge features for the VDGN-GAT architecture.

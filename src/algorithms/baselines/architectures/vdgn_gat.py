@@ -13,7 +13,13 @@ class VDGNGATStep(nn.Module):
     def __init__(self, latent_dimension):
         super().__init__()
         heads = 2
-        self.gat_conv = GATConv(latent_dimension, int(latent_dimension/heads), heads=heads)
+        self.gat_conv = GATConv(
+            latent_dimension,  # node latent dimension
+            int(latent_dimension / heads),
+            heads=heads,
+            add_self_loops=False,
+            edge_dim=latent_dimension,
+        )
         self.node_layer_norm1 = nn.LayerNorm(latent_dimension)
         self.node_mlp = nn.Sequential(
             nn.Linear(latent_dimension, latent_dimension),
