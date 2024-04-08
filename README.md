@@ -1,5 +1,7 @@
 # Swarm Reinforcement Learning For Adaptive Mesh Refinement (ASMR)
 
+[ArXiv link](https://arxiv.org/abs/2304.00818)
+
 ## Abstract
 The Finite Element Method, an important technique in engineering, is aided by Adaptive Mesh Refinement (AMR), which dynamically refines mesh regions to allow for a favorable trade-off between computational speed and simulation accuracy.
 Classical methods for AMR depend on task-specific heuristics or expensive error estimators, hindering their use for complex simulations.
@@ -116,6 +118,18 @@ and are used for the finite element method.
 
 ### HMPN
 Building blocks for the Message Passing Network architecture.
+
+# Citation
+Please cite this code and the corresponding paper as
+```
+@article{freymuth2024swarm,
+  title={Swarm reinforcement learning for adaptive mesh refinement},
+  author={Freymuth, Niklas and Dahlinger, Philipp and W{\"u}rth, Tobias and Reisch, Simon and K{\"a}rger, Luise and Neumann, Gerhard},
+  journal={Advances in Neural Information Processing Systems},
+  volume={36},
+  year={2024}
+}
+```
 
 # Errata
 
